@@ -6,7 +6,7 @@
 ## the terms of Contract DE-NA0003525 with NTESS, the U.S. Government retains
 ## certain rights in this software.
 
-cmake_minimum_required(VERSION 3.3)
+cmake_minimum_required(VERSION 3.5)
 
 project(miniGraphics)
 
@@ -20,12 +20,4 @@ endif()
 # will significantly speed up when this file is included in subdirectories.
 include(CMake/miniGraphicsMacros.cmake)
 
-add_subdirectory(BinarySwap)
 add_subdirectory(DirectSend)
-add_subdirectory(2-3-Swap)
-add_subdirectory(RadixK)
-
-option(MINIGRAPHICS_ENABLE_ICET "Turn on/off building IceT miniapp." ON)
-if (MINIGRAPHICS_ENABLE_ICET)
-  add_subdirectory(IceT)
-endif()
