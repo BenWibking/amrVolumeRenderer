@@ -12,11 +12,6 @@ cmake_minimum_required(VERSION 3.5)
 
 project(miniGraphicsPaint CXX)
 
-option(MINIGRAPHICS_ENABLE_OPENGL
-  "Turn on/off the OpenGL rendering system."
-  OFF
-  )
-
 set(srcs
   PainterSimple.cpp
   )
@@ -29,38 +24,6 @@ set(headers
 
 set(include_dirs)
 set(libs)
-
-if(MINIGRAPHICS_ENABLE_OPENGL)
-  find_package(OpenGL REQUIRED)
-  find_package(GLEW REQUIRED)
-  find_package(GLFW REQUIRED)
-
-  set(srcs ${srcs}
-    PainterOpenGL.cpp
-    OpenGL_common/shader.cpp
-    )
-
-  set(headers ${headers}
-    PainterOpenGL.hpp
-    OpenGL_common/ColorFragmentShader.fragmentshader
-    OpenGL_common/SimpleFragmentShader.fragmentshader
-    OpenGL_common/SimpleVertexShader.vertexshader
-    OpenGL_common/TransformVertexShader.vertexshader
-    OpenGL_common/shader.hpp
-    )
-
-  set(include_dirs ${include_dirs}
-    ${OPENGL_INCLUDE_DIR}
-    ${GLEW_INCLUDE_DIRS}
-    ${GLFW_INCLUDE_DIRS}
-    )
-
-  set(libs ${libs}
-    ${OPENGL_LIBRARIES}
-    ${GLEW_LIBRARIES}
-    ${GLFW_LIBRARIES}
-    )
-endif()
 
 miniGraphics_create_config_header("paint library")
 

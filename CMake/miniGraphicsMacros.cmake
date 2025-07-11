@@ -33,7 +33,6 @@ find_package(MPI REQUIRED)
 # Create the config header file
 function(miniGraphics_create_config_header miniapp_name)
   set(MINIGRAPHICS_APP_NAME ${miniapp_name})
-  set(MINIGRAPHICS_WIN32 ${WIN32})
   configure_file(${miniGraphics_CMAKE_MODULE_PATH}/miniGraphicsConfig.h.in
     ${CMAKE_CURRENT_BINARY_DIR}/miniGraphicsConfig.h
     )
@@ -69,13 +68,6 @@ function(miniGraphics_target_features target_name)
     cxx_std_11
     cxx_raw_string_literals
     )
-
-  if(WIN32)
-    # Don't deal with MSVC's unportable safety warnings
-    target_compile_definitions(${target_name}
-      PUBLIC -D_CRT_SECURE_NO_WARNINGS -D_SCL_SECURE_NO_WARNINGS
-      )
-  endif()
 endfunction(miniGraphics_target_features)
 
 # Find the largest power of two less than or equal to the given value.

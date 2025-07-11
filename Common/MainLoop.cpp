@@ -23,9 +23,6 @@
 #include <Common/YamlWriter.hpp>
 
 #include <Paint/PainterSimple.hpp>
-#ifdef MINIGRAPHICS_ENABLE_OPENGL
-#include <Paint/PainterOpenGL.hpp>
-#endif
 
 #include <glm/mat4x4.hpp>
 #include <glm/trigonometric.hpp>
@@ -34,13 +31,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#ifndef MINIGRAPHICS_WIN32
 #include <sys/types.h>
 #include <unistd.h>
-#else
-#include <process.h>
-#define getpid _getpid
-#endif
 
 #include <algorithm>
 #include <array>
@@ -79,7 +71,7 @@ enum optionIndex {
   RANDOM_SEED
 };
 enum enableIndex { DISABLE, ENABLE };
-enum paintType { SIMPLE_RASTER, OPENGL };
+enum paintType { SIMPLE_RASTER };
 enum geometryType { BOX, STL_FILE };
 enum distributionType { DUPLICATE, DIVIDE };
 enum colorType { COLOR_UBYTE, COLOR_FLOAT };
@@ -229,11 +221,6 @@ static std::unique_ptr<Painter> createPainter(const RunOptions& runOptions,
     case SIMPLE_RASTER:
       yaml.AddDictionaryEntry("painter", "simple");
       return std::unique_ptr<Painter>(new PainterSimple);
-#ifdef MINIGRAPHICS_ENABLE_OPENGL
-    case OPENGL:
-      yaml.AddDictionaryEntry("painter", "OpenGL");
-      return std::unique_ptr<Painter>(new PainterOpenGL);
-#endif
     default:
       std::cerr << "Internal error: bad painter option" << std::endl;
       exit(1);
@@ -768,11 +755,6 @@ int MainLoop(int argc,
     {WRITE_IMAGE,  DISABLE,       "",  "disable-write-image", option::Arg::None,
      "  --disable-write-image  Turn off writing of composited image. (Default)\n"});
 
-#ifdef MINIGRAPHICS_ENABLE_OPENGL
-  usage.push_back(
-    {PAINTER,      OPENGL,        "",  "paint-opengl", option::Arg::None,
-     "  --paint-opengl         Use OpenGL hardware when painting."});
-#endif
   usage.push_back(
     {PAINTER,      SIMPLE_RASTER, "",  "paint-simple-raster", option::Arg::None,
      "  --paint-simple-raster  Use simple triangle rasterization when painting.\n"
