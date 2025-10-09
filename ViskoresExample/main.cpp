@@ -30,9 +30,11 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -115,6 +117,8 @@ struct MpiGroupGuard {
   MPI_Group group;
 };
 
+constexpr unsigned int kDefaultCameraSeed = 53321u;
+
 }  // namespace
 
 ViskoresExample::ViskoresExample() : rank(0), numProcs(1) {
@@ -130,7 +134,10 @@ void ViskoresExample::initialize() const {
 }
 
 void ViskoresExample::createRankSpecificMesh(Mesh& mesh) const {
-  constexpr int totalBoxes = 8;
+  constexpr int boxesX = 2;
+  constexpr int boxesY = 2;
+  constexpr int boxesZ = 2;
+  constexpr int totalBoxes = boxesX * boxesY * boxesZ;
   const int ranks = std::max(1, numProcs);
   const int boxesPerRank = totalBoxes / ranks;
   const int remainder = totalBoxes % ranks;
@@ -151,8 +158,7 @@ void ViskoresExample::createRankSpecificMesh(Mesh& mesh) const {
   }
 
   Mesh combined;
-  const int boxesPerRow = 4;
-  const int totalRows = (totalBoxes + boxesPerRow - 1) / boxesPerRow;
+  const int boxesPerLayer = boxesX * boxesY;
   const float spacing = 2.0f;
   const float boxScale = 0.8f;
   const float twoPi = glm::two_pi<float>();
@@ -162,15 +168,18 @@ void ViskoresExample::createRankSpecificMesh(Mesh& mesh) const {
     Mesh boxMesh;
     MakeBox(boxMesh);
 
-    const int row = boxIndex / boxesPerRow;
-    const int col = boxIndex % boxesPerRow;
+    const int layer = boxIndex / boxesPerLayer;
+    const int inLayerIndex = boxIndex % boxesPerLayer;
+    const int row = inLayerIndex / boxesX;
+    const int col = inLayerIndex % boxesX;
 
     glm::vec3 offset(0.0f);
     offset.x =
-        (static_cast<float>(col) - (boxesPerRow - 1) * 0.5f) * spacing;
+        (static_cast<float>(col) - (boxesX - 1) * 0.5f) * spacing;
     offset.y =
-        ((totalRows - 1) * 0.5f - static_cast<float>(row)) * spacing;
-    offset.z = 0.0f;
+        ((boxesY - 1) * 0.5f - static_cast<float>(row)) * spacing;
+    offset.z =
+        (static_cast<float>(layer) - (boxesZ - 1) * 0.5f) * spacing;
 
     glm::mat4 transform(1.0f);
     transform = glm::translate(transform, offset);
@@ -263,33 +272,35 @@ int ViskoresExample::run(int argc, char** argv) {
   MPI_Comm_group(MPI_COMM_WORLD, &groupGuard.group);
 
   double accumulatedMaxPaintSeconds = 0.0;
-  std::unique_ptr<ImageFull> finalComposite;
-
   for (int trial = 0; trial < options.trials; ++trial) {
     ImageRGBAUByteColorFloatDepth localImage(options.width, options.height);
 
     const float aspect =
         static_cast<float>(options.width) / static_cast<float>(options.height);
-    constexpr int totalBoxes = 8;
-    constexpr int boxesPerRow = 4;
-    const int totalRows = (totalBoxes + boxesPerRow - 1) / boxesPerRow;
+    constexpr int boxesX = 2;
+    constexpr int boxesY = 2;
+    constexpr int boxesZ = 2;
     constexpr float spacing = 2.0f;
     constexpr float boxScale = 0.8f;
     const float gridHalfWidth =
-        ((boxesPerRow - 1) * spacing) * 0.5f + boxScale * 0.5f;
+        ((boxesX - 1) * spacing) * 0.5f + boxScale * 0.5f;
     const float gridHalfHeight =
-        ((totalRows - 1) * spacing) * 0.5f + boxScale * 0.5f;
-    const float gridRadius =
+        ((boxesY - 1) * spacing) * 0.5f + boxScale * 0.5f;
+    const float gridHalfDepth =
+        ((boxesZ - 1) * spacing) * 0.5f + boxScale * 0.5f;
+    const float horizontalRadius =
         std::sqrt(gridHalfWidth * gridHalfWidth +
+                  gridHalfDepth * gridHalfDepth);
+    const float boundingRadius =
+        std::sqrt(horizontalRadius * horizontalRadius +
                   gridHalfHeight * gridHalfHeight);
     const float fovY = glm::radians(45.0f);
     const float cameraDistance =
-        gridRadius / std::tan(fovY * 0.5f) + boxScale;
-    const float angleFraction =
-        options.trials > 1
-            ? static_cast<float>(trial) / static_cast<float>(options.trials - 1)
-            : 0.0f;
-    const float angle = angleFraction * glm::two_pi<float>();
+        boundingRadius / std::tan(fovY * 0.5f) + boxScale;
+    std::mt19937 trialRng(kDefaultCameraSeed + static_cast<unsigned int>(trial));
+    std::uniform_real_distribution<float> angleDistribution(
+        0.0f, glm::two_pi<float>());
+    const float angle = angleDistribution(trialRng);
     const glm::vec3 eye(cameraDistance * std::sin(angle),
                         0.0f,
                         cameraDistance * std::cos(angle));
@@ -320,13 +331,7 @@ int ViskoresExample::run(int argc, char** argv) {
     std::unique_ptr<Image> compositedImage =
         compositor->compose(&localImage, groupGuard.group, MPI_COMM_WORLD, yaml);
 
-    if (rank == 0 && compositedImage) {
-      const int pixels = compositedImage->getNumberOfPixels();
-      std::cout << "Trial " << trial << ": composed " << pixels
-                << " pixels on rank 0" << std::endl;
-    }
-
-    if ((trial == options.trials - 1) && compositedImage) {
+    if (compositedImage) {
       std::unique_ptr<ImageFull> fullImage;
       if (auto asFull = dynamic_cast<ImageFull*>(compositedImage.get())) {
         fullImage.reset(asFull);
@@ -345,8 +350,23 @@ int ViskoresExample::run(int argc, char** argv) {
       std::unique_ptr<ImageFull> gatheredImage =
           fullImage->Gather(0, MPI_COMM_WORLD);
 
-      if (rank == 0) {
-        finalComposite = std::move(gatheredImage);
+      if (rank == 0 && gatheredImage) {
+        const int pixels = gatheredImage->getNumberOfPixels();
+        std::cout << "Trial " << trial << ": composed " << pixels
+                  << " pixels on rank 0" << std::endl;
+
+        std::ostringstream filename;
+        filename << "viskores-composite-trial-" << trial << ".ppm";
+        if (SavePPM(*gatheredImage, filename.str())) {
+          std::cout << "Saved trial " << trial << " composited image to '"
+                    << filename.str() << "'" << std::endl;
+        } else {
+          std::cerr << "Failed to save trial " << trial
+                    << " composited image to '" << filename.str() << "'"
+                    << std::endl;
+        }
+
+        // keep gatheredImage alive for potential future use
       }
     }
   }
@@ -358,27 +378,24 @@ int ViskoresExample::run(int argc, char** argv) {
               << averageMaxPaintSeconds << " s" << std::endl;
   }
 
-  if (rank == 0 && finalComposite) {
-    const std::string filename = "viskores-composite-final.ppm";
-    if (SavePPM(*finalComposite, filename)) {
-      std::cout << "Saved final composited image to '" << filename << "'"
-                << std::endl;
-    } else {
-      std::cerr << "Failed to save final composited image to '" << filename
-                << "'" << std::endl;
-    }
-  }
-
   return 0;
 }
 
 int main(int argc, char* argv[]) {
+  std::vector<std::string> originalArgs(argv, argv + argc);
+  std::vector<char*> argvCopy;
+  argvCopy.reserve(originalArgs.size());
+  for (std::size_t i = 0; i < originalArgs.size(); ++i) {
+    argvCopy.push_back(const_cast<char*>(originalArgs[i].c_str()));
+  }
+
   MPI_Init(&argc, &argv);
 
   int exitCode = 0;
   try {
     ViskoresExample example;
-    exitCode = example.run(argc, argv);
+    const int argcCopy = static_cast<int>(argvCopy.size());
+    exitCode = example.run(argcCopy, argvCopy.data());
   } catch (const std::exception& error) {
     int rank = 0;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
