@@ -6,7 +6,7 @@
 ## the terms of Contract DE-NA0003525 with NTESS, the U.S. Government retains
 ## certain rights in this software.
 
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 
 include(CMakeParseArguments)
 

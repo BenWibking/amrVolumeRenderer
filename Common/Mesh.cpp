@@ -84,7 +84,7 @@ void Mesh::setNumberOfTriangles(int numTriangles) {
   this->boundsValid = false;
 }
 
-inline glm::vec3 Mesh::getPointCoordinates(int vertexIndex) const {
+glm::vec3 Mesh::getPointCoordinates(int vertexIndex) const {
   assert((vertexIndex >= 0) && (vertexIndex) < this->getNumberOfVertices());
   const float *v = this->getPointCoordinatesBuffer(vertexIndex);
   return glm::vec3(v[0], v[1], v[2]);
