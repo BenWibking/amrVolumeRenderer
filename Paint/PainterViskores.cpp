@@ -46,6 +46,7 @@ public:
   using viskores::rendering::View3D::View3D;
 
   void RenderScreenAnnotations() override {}
+  void RenderWorldAnnotations() override {}
 };
 }
 
@@ -257,6 +258,7 @@ void PainterViskores::paint(const Mesh& mesh,
                                               *mapper,
                                               *canvas,
                                               viskores::rendering::Color(0.0f, 0.0f, 0.0f, 1.0f));
+    view->SetWorldAnnotationsEnabled(false);
     
     // Setup camera from matrices
     setupCamera(modelview, projection);
