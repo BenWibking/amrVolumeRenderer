@@ -11,6 +11,7 @@
 #include <Common/MainLoop.hpp>
 
 #include <array>
+#include <iostream>
 
 constexpr int DEFAULT_MAX_IMAGE_SPLIT = 1000000;
 
@@ -54,6 +55,8 @@ static void PostReceives(
     MPI_Group recvGroup,
     MPI_Comm communicator,
     std::vector<IncomingDirectSendImage>& incomingImagesOut) {
+  int localRank;
+  MPI_Comm_rank(communicator, &localRank);
   int recvGroupRank;
   MPI_Group_rank(recvGroup, &recvGroupRank);
   if (recvGroupRank == MPI_UNDEFINED) {
@@ -83,12 +86,16 @@ static void PostReceives(
   for (int sendGroupIndex = 0; sendGroupIndex < sendGroupSize;
        ++sendGroupIndex) {
     if (sendGroupIndex != sendGroupRank) {
+      int sourceRank =
+          getRealRank(sendGroup, sendGroupIndex, communicator);
       incomingImagesOut[sendGroupIndex].imageBuffer =
           localImage->createNew(rangeBegin, rangeEnd);
       incomingImagesOut[sendGroupIndex].receiveRequests =
           incomingImagesOut[sendGroupIndex].imageBuffer->IReceive(
-              getRealRank(sendGroup, sendGroupIndex, communicator),
-              communicator);
+              sourceRank, communicator);
+      std::cout << "[DirectSendOverlap] Rank " << localRank
+                << " receiving image region [" << rangeBegin << ", "
+                << rangeEnd << ") from rank " << sourceRank << std::endl;
       incomingImagesOut[sendGroupIndex].status =
           IncomingDirectSendImage::WAITING;
     } else {
@@ -112,6 +119,8 @@ static void PostSends(
     MPI_Comm communicator,
     std::vector<MPI_Request>& requestsOut,
     std::vector<std::unique_ptr<const Image>>& outgoingImagesOut) {
+  int localRank;
+  MPI_Comm_rank(communicator, &localRank);
   int sendGroupRank;
   MPI_Group_rank(sendGroup, &sendGroupRank);
   if (sendGroupRank == MPI_UNDEFINED) {
@@ -139,8 +148,13 @@ static void PostSends(
                     rangeEnd);
       std::unique_ptr<const Image> outImage =
           localImage->window(rangeBegin, rangeEnd);
+      int destRank =
+          getRealRank(recvGroup, recvGroupIndex, communicator);
+      std::cout << "[DirectSendOverlap] Rank " << localRank
+                << " sending image region [" << rangeBegin << ", "
+                << rangeEnd << ") to rank " << destRank << std::endl;
       std::vector<MPI_Request> newRequests = outImage->ISend(
-          getRealRank(recvGroup, recvGroupIndex, communicator), communicator);
+          destRank, communicator);
       requestsOut.insert(
           requestsOut.end(), newRequests.begin(), newRequests.end());
       outgoingImagesOut[recvGroupIndex].swap(outImage);

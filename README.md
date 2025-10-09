@@ -1,74 +1,70 @@
-# miniGraphics #
+# miniGraphics
 
-The miniGraphics miniapp demonstrates parallel rendering in an MPI
-environment using a sort-last parallel rendering approach. The main
-intention of miniGraphics is to demonstrate and compare the image
-compositing step where multiple images are combined to a single image
-(essentially an optimized reduce operation); however, miniGraphics also has
-multiple rendering backends that can be used in conjunction with the
-compositing algorithms.
+miniGraphics demonstrates sort-last parallel rendering in an MPI environment.
+The miniapp focuses on the DirectSend compositor while sharing rendering
+utilities across a small family of miniapps. DirectSend implements a
+straightforward image compositing path where each rank sends its rendered
+image directly to a designated compositor; variants exercise different
+communication overlap strategies.
 
-The miniGraphics miniapp implements the DirectSend parallel rendering
-algorithm, which is a straightforward sort-last parallel rendering approach
-where each process sends its rendered image directly to the compositing
-process.
+## Build
 
-## Compiling ##
+Prerequisites:
 
-The following are the minimum requirements for building miniGraphics:
+  * CMake 3.3+
+  * A C++11 compliant compiler
+  * MPI implementation and launcher (e.g., OpenMPI, MPICH)
 
-  * CMake version 3.3 or better
-  * A C++ compiler (C++11 compliant)
-  * MPI
+Configure and build in an out-of-source tree:
 
-To compile miniGraphics, simply run CMake for the base directory of
-miniGraphics (the directory containing this file). The basic steps for
-compiling with CMake are (1) create a build directory, (2) run cmake in that
-directory, and (3) run the build program for the project files generated
-(usually make or ninja). The following are typical commands although they can
-vary between systems.
+```sh
+cmake -S . -B build -DMINIGRAPHICS_ENABLE_TESTING=ON
+cmake --build build --target all -j
+```
 
-    mkdir miniGraphics-build
-    cd miniGraphics-build
-    cmake ../miniGraphics
-    make -j
+Re-run the `cmake --build` command after making source changes. Generated
+artifacts stay under `build/`, which can be removed safely when starting fresh.
 
-It is also possible to independently compile the DirectSend variants by
-following the same steps but for the subdirectory containing the specific
-variant in question.
+## Run
 
-## Directories ##
+Launch the reference DirectSend compositor locally with four MPI ranks:
 
-The miniGraphics implementation is organized as follows:
+```sh
+mpirun -np 4 build/bin/DirectSendBase --width=256 --height=256
+```
 
-  * **DirectSend** Contains the DirectSend compositing algorithm
-    implementation. DirectSend is a straightforward algorithm where each
-    process sends its rendered image directly to the designated compositing
-    process. Within this directory are subdirectories with different variants:
-    - **Base** The basic DirectSend implementation
-    - **Overlap** An optimized version that overlaps communication
+The executable accepts additional options for image dimensions and scene
+selection; inspect `--help` for details.
 
-In addition to the DirectSend compositing algorithm, there are also some
-supporting directories containing code that is used by the miniGraphics
-application.
+## Test
 
-  * **Paint** Contains the drawing algorithms used in the parallel
-    rendering. sort-last parallel rendering happens in 2 phases: a local
-    geometry rendering (what we call here a "paint" to prevent name
-    overloading) and a parallel image compositing. The painting algorithms
-    are located in this directory (and contributed painting algorithms
-    should also go here).
-  * **Common** A collection of common objects used by miniGraphics.
-    Examples include image objects, mesh objects, and boilerplate main loop
-    code.
-  * **CMake** Contains auxiliary CMake scripts used for building.
-  * **ThirdParty** Contains code imported from third party sources that are
-    used by miniGraphics.
+Enable testing during configuration (see Build) and run the regression suite:
 
-## License ##
+```sh
+ctest --test-dir build -V
+```
+
+The suite drives the MPI matrix defined in `CTestTestfile.cmake`; expect small
+image sizes to minimize runtime.
+
+## Repository Layout
+
+  * `DirectSend/` DirectSend compositor implementations and shared utilities.
+    - `DirectSend/Base/` Reference compositing path.
+    - `DirectSend/Overlap/` Variants that overlap communication and computation.
+  * `Common/` Shared rendering primitives, image buffers, and the main loop.
+  * `Paint/` Scene setup and drawing code reused across miniapps.
+  * `Base/` Reference compositing path wiring and wrappers around DirectSend.
+  * `Overlap/` Communication overlap miniapp entry points.
+  * `ViskoresExample/` Example showing integration patterns with Viskores.
+  * `Reference/` Sample configurations and reference imagery.
+  * `ThirdParty/` Vendored headers such as glm and optionparser (do not modify).
+  * `CMake/` Auxiliary build scripts and macros.
+
+## License
 
 miniGraphics is distributed under the OSI-approved BSD 3-clause License.
-See [LICENSE.txt]() for details.
+See `LICENSE.txt` for details.
 
 Copyright (c) 2017
 National Technology & Engineering Solutions of Sandia, LLC (NTESS). Under
