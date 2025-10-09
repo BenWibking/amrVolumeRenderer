@@ -13,21 +13,42 @@ cmake_minimum_required(VERSION 3.5)
 project(miniGraphicsPaint CXX)
 
 set(srcs
-  PainterSimple.cpp
+  PainterViskores.cpp
   )
 
 set(headers
   ${CMAKE_CURRENT_BINARY_DIR}/miniGraphicsConfig.h
   Painter.hpp
-  PainterSimple.hpp
+  PainterViskores.hpp
   )
+
+# Find Viskores
+find_package(Viskores QUIET)
 
 set(include_dirs)
 set(libs)
 
+# Add Viskores if available
+if(Viskores_FOUND)
+  if(TARGET viskores::rendering)
+    list(APPEND libs viskores::rendering)
+  endif()
+  if(DEFINED Viskores_INCLUDE_DIRS)
+    list(APPEND include_dirs ${Viskores_INCLUDE_DIRS})
+  endif()
+  if(DEFINED Viskores_LIBRARIES)
+    list(APPEND libs ${Viskores_LIBRARIES})
+  endif()
+endif()
+
 miniGraphics_create_config_header("paint library")
 
 add_library(miniGraphicsPaint ${srcs} ${headers})
+
+# Add Viskores compile definition after target creation
+if(Viskores_FOUND)
+  target_compile_definitions(miniGraphicsPaint PRIVATE MINIGRAPHICS_ENABLE_VISKORES)
+endif()
 
 miniGraphics_target_features(miniGraphicsPaint)
 

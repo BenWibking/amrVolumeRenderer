@@ -42,7 +42,7 @@ ctest
 **Project Structure:**
 - **Algorithm Directories:** Each top-level directory (BinarySwap/, DirectSend/, 2-3-Swap/, RadixK/, IceT/) contains variants of a specific compositing algorithm
 - **Common/:** Shared utilities (Image classes, Compositor base, Mesh handling, file I/O)
-- **Paint/:** Rendering backends (PainterSimple for software rendering, PainterOpenGL for hardware)
+- **Paint/:** Rendering backends (PainterViskores for distributed rendering)
 - **ThirdParty/:** External dependencies (GLM, optionparser, IceT)
 
 **Key Dependencies:**

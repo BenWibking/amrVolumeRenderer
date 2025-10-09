@@ -22,7 +22,7 @@
 #include <Common/Timer.hpp>
 #include <Common/YamlWriter.hpp>
 
-#include <Paint/PainterSimple.hpp>
+#include <Paint/PainterViskores.hpp>
 
 #include <glm/mat4x4.hpp>
 #include <glm/trigonometric.hpp>
@@ -71,7 +71,7 @@ enum optionIndex {
   RANDOM_SEED
 };
 enum enableIndex { DISABLE, ENABLE };
-enum paintType { SIMPLE_RASTER };
+enum paintType { VISKORES_RASTER };
 enum geometryType { BOX, STL_FILE };
 enum distributionType { DUPLICATE, DIVIDE };
 enum colorType { COLOR_UBYTE, COLOR_FLOAT };
@@ -108,7 +108,7 @@ struct RunOptions {
         yamlFilename("timing.yaml"),
         checkImage(true),
         writeImage(false),
-        painter(SIMPLE_RASTER),
+        painter(VISKORES_RASTER),
         geometry(BOX),
         distribution(DUPLICATE),
         overlap(-0.05f),
@@ -218,9 +218,9 @@ static std::unique_ptr<ImageFull> createImage(const RunOptions& runOptions,
 static std::unique_ptr<Painter> createPainter(const RunOptions& runOptions,
                                               YamlWriter& yaml) {
   switch (runOptions.painter) {
-    case SIMPLE_RASTER:
-      yaml.AddDictionaryEntry("painter", "simple");
-      return std::unique_ptr<Painter>(new PainterSimple);
+    case VISKORES_RASTER:
+      yaml.AddDictionaryEntry("painter", "viskores");
+      return std::unique_ptr<Painter>(new PainterViskores);
     default:
       std::cerr << "Internal error: bad painter option" << std::endl;
       exit(1);
@@ -756,8 +756,8 @@ int MainLoop(int argc,
      "  --disable-write-image  Turn off writing of composited image. (Default)\n"});
 
   usage.push_back(
-    {PAINTER,      SIMPLE_RASTER, "",  "paint-simple-raster", option::Arg::None,
-     "  --paint-simple-raster  Use simple triangle rasterization when painting.\n"
+    {PAINTER,      VISKORES_RASTER, "",  "paint-viskores", option::Arg::None,
+     "  --paint-viskores       Use the Viskores painter when rendering.\n"
      "                         (Default)\n"});
 
   usage.push_back(
