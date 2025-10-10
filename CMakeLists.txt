@@ -22,3 +22,4 @@ include(CMake/miniGraphicsMacros.cmake)
 
 add_subdirectory(DirectSend)
 add_subdirectory(ViskoresExample)
+add_subdirectory(ViskoresVolumeExample)
