@@ -50,6 +50,7 @@ class ViskoresVolumeExample {
   double paint(const std::vector<VolumeBox>& boxes,
                const VolumeBounds& bounds,
                int samplesPerAxis,
+               float boxTransparency,
                ImageFull& image,
                const CameraParameters& camera);
   Compositor* getCompositor();
@@ -61,6 +62,8 @@ class ViskoresVolumeExample {
   int numProcs;
 
   mutable glm::vec3 localCentroid;
+  mutable glm::vec3 localBoundsMin;
+  mutable glm::vec3 localBoundsMax;
   mutable bool hasLocalData;
 };
 

@@ -1,12 +1,12 @@
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iostream>
 #include <limits>
 #include <memory>
-#include <numeric>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -49,6 +49,7 @@ struct Options {
   int height = 512;
   int trials = 1;
   int samplesPerAxis = 64;
+  float boxTransparency = 0.0f;
   std::string yamlOutput;
 };
 
@@ -59,6 +60,8 @@ void printUsage() {
             << "  --height H       Image height (default: 512)\n"
             << "  --trials N       Number of render trials (default: 1)\n"
             << "  --samples S      Samples per axis for the volume (default: 64)\n"
+            << "  --box-transparency T  Transparency factor per box in [0,1] "
+               "(default: 0)\n"
             << "  --yaml-output F  Write timing information to YAML file F\n"
             << "  -h, --help       Show this help message\n";
 }
@@ -100,6 +103,16 @@ Options parseOptions(int argc, char** argv, int rank, bool& exitEarly) {
       options.samplesPerAxis = std::stoi(argv[++i]);
       if (options.samplesPerAxis < 2) {
         throw std::runtime_error("samples per axis must be at least 2");
+      }
+    } else if (arg == "--box-transparency") {
+      if (i + 1 >= argc) {
+        throw std::runtime_error("missing value for --box-transparency");
+      }
+      options.boxTransparency = std::stof(argv[++i]);
+      if (options.boxTransparency < 0.0f ||
+          options.boxTransparency > 1.0f) {
+        throw std::runtime_error(
+            "box transparency must be between 0 and 1");
       }
     } else if (arg == "--yaml-output") {
       if (i + 1 >= argc) {
@@ -155,6 +168,7 @@ class VolumePainterViskores {
                int samplesPerAxis,
                int rank,
                int numProcs,
+               float boxTransparency,
                ImageFull& image,
                const ViskoresVolumeExample::CameraParameters& camera);
 
@@ -164,7 +178,8 @@ class VolumePainterViskores {
       const ViskoresVolumeExample::VolumeBounds& bounds,
       int samplesPerAxis) const;
 
-  viskores::cont::ColorTable buildColorTable(int numProcs) const;
+  viskores::cont::ColorTable buildColorTable(int numProcs,
+                                             float alphaScale) const;
 
   void setupCamera(viskores::rendering::View3D& view,
                    const ViskoresVolumeExample::CameraParameters& camera);
@@ -259,15 +274,22 @@ viskores::cont::DataSet VolumePainterViskores::boxesToDataSet(
 }
 
 viskores::cont::ColorTable VolumePainterViskores::buildColorTable(
-    int numProcs) const {
+    int numProcs, float alphaScale) const {
   (void)numProcs;
+  const float clampedScale = std::clamp(alphaScale, 0.0f, 1.0f);
   viskores::cont::ColorTable colorTable("inferno");
-  colorTable.AddPointAlpha(0.0f, 0.0f);
-  colorTable.AddPointAlpha(0.15f, 0.02f);
-  colorTable.AddPointAlpha(0.35f, 0.05f);
-  colorTable.AddPointAlpha(0.6f, 0.1f);
-  colorTable.AddPointAlpha(0.85f, 0.18f);
-  colorTable.AddPointAlpha(1.0f, 0.3f);
+
+  const std::array<float, 6> positions = {
+      0.0f, 0.15f, 0.35f, 0.6f, 0.85f, 1.0f};
+  const std::array<float, 6> alphaValues = {
+      0.0f, 0.02f, 0.05f, 0.1f, 0.18f, 0.3f};
+
+  for (std::size_t i = 0; i < positions.size(); ++i) {
+    const float scaledAlpha =
+        std::clamp(alphaValues[i] * clampedScale, 0.0f, 1.0f);
+    colorTable.AddPointAlpha(positions[i], scaledAlpha);
+  }
+
   return colorTable;
 }
 
@@ -303,9 +325,14 @@ void VolumePainterViskores::canvasToImage(
     for (int x = 0; x < width; ++x) {
       const int pixelIndex = y * width + x;
       const viskores::Vec4f color = colorPortal.Get(pixelIndex);
+      const float alpha =
+          std::clamp(static_cast<float>(color[3]), 0.0f, 1.0f);
       image.setColor(x,
                      y,
-                     Color(color[0], color[1], color[2], color[3]));
+                     Color(static_cast<float>(color[0]) * alpha,
+                           static_cast<float>(color[1]) * alpha,
+                           static_cast<float>(color[2]) * alpha,
+                           alpha));
     }
   }
 }
@@ -316,80 +343,16 @@ double VolumePainterViskores::paint(
     int samplesPerAxis,
     int rank,
     int numProcs,
+    float boxTransparency,
     ImageFull& image,
     const ViskoresVolumeExample::CameraParameters& camera) {
   try {
-    const int localBoxCount = static_cast<int>(boxes.size());
-    std::vector<int> counts(numProcs, 0);
-    MPI_Allgather(&localBoxCount,
-                  1,
-                  MPI_INT,
-                  counts.data(),
-                  1,
-                  MPI_INT,
-                  MPI_COMM_WORLD);
-
-    const int totalBoxCount =
-        std::accumulate(counts.begin(), counts.end(), 0);
-
-    std::vector<ViskoresVolumeExample::VolumeBox> globalBoxes;
-    globalBoxes.reserve(static_cast<std::size_t>(totalBoxCount));
-
-    if (totalBoxCount > 0) {
-      constexpr std::size_t kPackedBoxSize = 7;
-      std::vector<float> sendBuffer(
-          static_cast<std::size_t>(localBoxCount) * kPackedBoxSize, 0.0f);
-      for (int i = 0; i < localBoxCount; ++i) {
-        const auto& box = boxes[static_cast<std::size_t>(i)];
-        std::size_t base = static_cast<std::size_t>(i) * kPackedBoxSize;
-        sendBuffer[base + 0] = box.minCorner.x;
-        sendBuffer[base + 1] = box.minCorner.y;
-        sendBuffer[base + 2] = box.minCorner.z;
-        sendBuffer[base + 3] = box.maxCorner.x;
-        sendBuffer[base + 4] = box.maxCorner.y;
-        sendBuffer[base + 5] = box.maxCorner.z;
-        sendBuffer[base + 6] = box.scalarValue;
-      }
-
-      std::vector<int> recvCounts(numProcs, 0);
-      std::vector<int> recvDispls(numProcs, 0);
-      for (int i = 0; i < numProcs; ++i) {
-        recvCounts[i] = counts[i] * static_cast<int>(kPackedBoxSize);
-        if (i > 0) {
-          recvDispls[i] = recvDispls[i - 1] + recvCounts[i - 1];
-        }
-      }
-
-      std::vector<float> recvBuffer(
-          static_cast<std::size_t>(totalBoxCount) * kPackedBoxSize, 0.0f);
-
-      MPI_Allgatherv(sendBuffer.data(),
-                     recvCounts[rank],
-                     MPI_FLOAT,
-                     recvBuffer.data(),
-                     recvCounts.data(),
-                     recvDispls.data(),
-                     MPI_FLOAT,
-                     MPI_COMM_WORLD);
-
-      for (int boxIdx = 0; boxIdx < totalBoxCount; ++boxIdx) {
-        const std::size_t base =
-            static_cast<std::size_t>(boxIdx) * kPackedBoxSize;
-        ViskoresVolumeExample::VolumeBox box;
-        box.minCorner = glm::vec3(recvBuffer[base + 0],
-                                  recvBuffer[base + 1],
-                                  recvBuffer[base + 2]);
-        box.maxCorner = glm::vec3(recvBuffer[base + 3],
-                                  recvBuffer[base + 4],
-                                  recvBuffer[base + 5]);
-        box.scalarValue = recvBuffer[base + 6];
-        globalBoxes.push_back(box);
-      }
-    }
-
     viskores::cont::DataSet dataset =
-        boxesToDataSet(globalBoxes, bounds, samplesPerAxis);
-    viskores::cont::ColorTable colorTable = buildColorTable(numProcs);
+        boxesToDataSet(boxes, bounds, samplesPerAxis);
+    const float alphaScale =
+        std::clamp(1.0f - boxTransparency, 0.0f, 1.0f);
+    viskores::cont::ColorTable colorTable =
+        buildColorTable(numProcs, alphaScale);
 
     const glm::vec3 span = bounds.maxCorner - bounds.minCorner;
     const float minSpacing = std::max(
@@ -450,7 +413,12 @@ double VolumePainterViskores::paint(
 }  // namespace
 
 ViskoresVolumeExample::ViskoresVolumeExample()
-    : rank(0), numProcs(1), localCentroid(0.0f), hasLocalData(false) {
+    : rank(0),
+      numProcs(1),
+      localCentroid(0.0f),
+      localBoundsMin(0.0f),
+      localBoundsMax(0.0f),
+      hasLocalData(false) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
 }
@@ -572,9 +540,13 @@ ViskoresVolumeExample::createRankSpecificBoxes(
 
   if (!boxes.empty()) {
     localCentroid = 0.5f * (localMin + localMax);
+    localBoundsMin = localMin;
+    localBoundsMax = localMax;
     hasLocalData = true;
   } else {
     localCentroid = glm::vec3(0.0f);
+    localBoundsMin = glm::vec3(0.0f);
+    localBoundsMax = glm::vec3(0.0f);
     hasLocalData = false;
   }
 
@@ -585,11 +557,19 @@ double ViskoresVolumeExample::paint(
     const std::vector<VolumeBox>& boxes,
     const VolumeBounds& bounds,
     int samplesPerAxis,
+    float boxTransparency,
     ImageFull& image,
     const CameraParameters& camera) {
   static VolumePainterViskores painter;
   return painter.paint(
-      boxes, bounds, samplesPerAxis, rank, numProcs, image, camera);
+      boxes,
+      bounds,
+      samplesPerAxis,
+      rank,
+      numProcs,
+      boxTransparency,
+      image,
+      camera);
 }
 
 Compositor* ViskoresVolumeExample::getCompositor() {
@@ -607,17 +587,6 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
   const glm::mat4 projection =
       glm::perspective(fovYRadians, aspect, camera.nearPlane, camera.farPlane);
 
-  std::array<float, 3> localCentroidArray = {
-      localCentroid.x, localCentroid.y, localCentroid.z};
-  std::vector<float> allCentroids(static_cast<std::size_t>(numProcs) * 3, 0.0f);
-  MPI_Allgather(localCentroidArray.data(),
-                3,
-                MPI_FLOAT,
-                allCentroids.data(),
-                3,
-                MPI_FLOAT,
-                MPI_COMM_WORLD);
-
   int localHasDataFlag = hasLocalData ? 1 : 0;
   std::vector<int> allHasData(numProcs, 0);
   MPI_Allgather(&localHasDataFlag,
@@ -628,34 +597,84 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
                 MPI_INT,
                 MPI_COMM_WORLD);
 
-  std::vector<std::pair<float, int>> depthOrder(numProcs);
+  std::array<float, 6> localBoundsArray = {localBoundsMin.x,
+                                           localBoundsMin.y,
+                                           localBoundsMin.z,
+                                           localBoundsMax.x,
+                                           localBoundsMax.y,
+                                           localBoundsMax.z};
+  std::vector<float> allBounds(static_cast<std::size_t>(numProcs) * 6, 0.0f);
+  MPI_Allgather(localBoundsArray.data(),
+                6,
+                MPI_FLOAT,
+                allBounds.data(),
+                6,
+                MPI_FLOAT,
+                MPI_COMM_WORLD);
+
+  struct DepthInfo {
+    float minDepth;
+    float maxDepth;
+    int rank;
+  };
+
+  std::vector<DepthInfo> depthOrder(static_cast<std::size_t>(numProcs));
   for (int proc = 0; proc < numProcs; ++proc) {
     if (allHasData[proc]) {
-      const glm::vec4 centroid(allCentroids[proc * 3 + 0],
-                               allCentroids[proc * 3 + 1],
-                               allCentroids[proc * 3 + 2],
-                               1.0f);
-      const glm::vec4 clipSpace = projection * (modelview * centroid);
-      const float normalizedDepth =
-          (clipSpace.w != 0.0f)
-              ? (clipSpace.z / clipSpace.w)
-              : std::numeric_limits<float>::infinity();
-      depthOrder[proc] = std::make_pair(normalizedDepth, proc);
+      const std::size_t base = static_cast<std::size_t>(proc) * 6;
+      const glm::vec3 boundsMin(allBounds[base + 0],
+                                allBounds[base + 1],
+                                allBounds[base + 2]);
+      const glm::vec3 boundsMax(allBounds[base + 3],
+                                allBounds[base + 4],
+                                allBounds[base + 5]);
+
+      float minDepth = std::numeric_limits<float>::infinity();
+      float maxDepth = -std::numeric_limits<float>::infinity();
+      for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
+        const glm::vec3 corner(
+            (cornerIndex & 1) ? boundsMax.x : boundsMin.x,
+            (cornerIndex & 2) ? boundsMax.y : boundsMin.y,
+            (cornerIndex & 4) ? boundsMax.z : boundsMin.z);
+        const glm::vec4 homogeneousCorner(corner, 1.0f);
+        const glm::vec4 clipSpace =
+            projection * (modelview * homogeneousCorner);
+        if (clipSpace.w != 0.0f) {
+          const float normalizedDepth = clipSpace.z / clipSpace.w;
+          minDepth = std::min(minDepth, normalizedDepth);
+          maxDepth = std::max(maxDepth, normalizedDepth);
+        }
+      }
+
+      if (!std::isfinite(minDepth) || !std::isfinite(maxDepth)) {
+        minDepth = std::numeric_limits<float>::infinity();
+        maxDepth = std::numeric_limits<float>::infinity();
+      }
+      depthOrder[static_cast<std::size_t>(proc)] = {minDepth, maxDepth, proc};
     } else {
-      depthOrder[proc] =
-          std::make_pair(std::numeric_limits<float>::infinity(), proc);
+      depthOrder[static_cast<std::size_t>(proc)] = {
+          std::numeric_limits<float>::infinity(),
+          std::numeric_limits<float>::infinity(),
+          proc};
     }
   }
 
   std::sort(depthOrder.begin(),
             depthOrder.end(),
-            [](const std::pair<float, int>& a,
-               const std::pair<float, int>& b) { return a.first < b.first; });
+            [](const DepthInfo& a, const DepthInfo& b) {
+              if (a.minDepth == b.minDepth) {
+                if (a.maxDepth == b.maxDepth) {
+                  return a.rank < b.rank;
+                }
+                return a.maxDepth < b.maxDepth;
+              }
+              return a.minDepth < b.minDepth;
+            });
 
   std::vector<int> rankOrder(static_cast<std::size_t>(numProcs));
   for (int i = 0; i < numProcs; ++i) {
     rankOrder[static_cast<std::size_t>(i)] =
-        depthOrder[static_cast<std::size_t>(i)].second;
+        depthOrder[static_cast<std::size_t>(i)].rank;
   }
 
   MPI_Group orderedGroup = MPI_GROUP_NULL;
@@ -755,6 +774,7 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
         paint(boxes,
               bounds,
               options.samplesPerAxis,
+              options.boxTransparency,
               localImage,
               camera);
 
@@ -771,6 +791,13 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
       std::cout << "Trial " << trial
                 << ": volume paint time (max across ranks) = "
                 << maxPaintSeconds << " s" << std::endl;
+    }
+
+    if (std::getenv("MINIGRAPHICS_DUMP_LOCAL_IMAGES") != nullptr) {
+      std::ostringstream localFilename;
+      localFilename << "viskores-volume-local-rank-" << rank << "-trial-"
+                    << trial << ".ppm";
+      SavePPM(localImage, localFilename.str());
     }
 
     MPI_Group orderedGroup =
