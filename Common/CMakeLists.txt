@@ -44,6 +44,7 @@ set(headers
   ImageRGBAUByteColorFloatDepth.hpp
   ImageRGBAUByteColorOnly.hpp
   ImageRGBFloatColorDepth.hpp
+  LayeredImageInterface.hpp
   ImageSparse.hpp
   ImageSparseColorDepth.hpp
   ImageSparseColorOnly.hpp

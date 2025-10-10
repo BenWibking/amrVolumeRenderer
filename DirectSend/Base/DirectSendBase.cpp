@@ -8,12 +8,24 @@
 
 #include "DirectSendBase.hpp"
 
+#include <Common/LayeredImageInterface.hpp>
 #include <Common/MainLoop.hpp>
 
 #include <array>
 #include <iostream>
+#include <numeric>
 
 constexpr int DEFAULT_MAX_IMAGE_SPLIT = 1000000;
+
+namespace {
+
+struct LayerEntry {
+  float depth;
+  int owningRank;
+  int localIndex;
+};
+
+}  // namespace
 
 static int getRealRank(MPI_Group group, int rank, MPI_Comm communicator) {
   MPI_Group commGroup;
@@ -212,6 +224,10 @@ std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
                                                MPI_Group group,
                                                MPI_Comm communicator,
                                                YamlWriter& yaml) {
+  if (auto* layered = dynamic_cast<LayeredImageInterface*>(localImage)) {
+    return this->composeLayered(localImage, *layered, group, communicator, yaml);
+  }
+
   int groupSize;
   MPI_Group_size(group, &groupSize);
 
@@ -226,6 +242,128 @@ std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
   MPI_Group_free(&recvGroup);
 
   return result;
+}
+
+std::unique_ptr<Image> DirectSendBase::composeLayered(
+    Image* layeredImage,
+    LayeredImageInterface& layers,
+    MPI_Group group,
+    MPI_Comm communicator,
+    YamlWriter& yaml) {
+  int communicatorSize = 0;
+  int communicatorRank = 0;
+  MPI_Comm_size(communicator, &communicatorSize);
+  MPI_Comm_rank(communicator, &communicatorRank);
+
+  int localLayerCount = layers.getLayerCount();
+  std::vector<int> allLayerCounts(static_cast<std::size_t>(communicatorSize), 0);
+  MPI_Allgather(&localLayerCount,
+                1,
+                MPI_INT,
+                allLayerCounts.data(),
+                1,
+                MPI_INT,
+                communicator);
+
+  std::vector<int> layerDisplacements(static_cast<std::size_t>(communicatorSize),
+                                      0);
+  int totalLayerCount = 0;
+  for (int proc = 0; proc < communicatorSize; ++proc) {
+    layerDisplacements[static_cast<std::size_t>(proc)] = totalLayerCount;
+    totalLayerCount += allLayerCounts[static_cast<std::size_t>(proc)];
+  }
+
+  std::vector<float> localDepths(static_cast<std::size_t>(localLayerCount),
+                                 std::numeric_limits<float>::infinity());
+  for (int layerIndex = 0; layerIndex < localLayerCount; ++layerIndex) {
+    localDepths[static_cast<std::size_t>(layerIndex)] =
+        layers.getLayerDepthHint(layerIndex);
+  }
+
+  std::vector<float> allDepths(static_cast<std::size_t>(totalLayerCount),
+                               std::numeric_limits<float>::infinity());
+  MPI_Allgatherv(localDepths.data(),
+                 localLayerCount,
+                 MPI_FLOAT,
+                 allDepths.data(),
+                 allLayerCounts.data(),
+                 layerDisplacements.data(),
+                 MPI_FLOAT,
+                 communicator);
+
+  std::vector<LayerEntry> globalOrder;
+  globalOrder.reserve(static_cast<std::size_t>(totalLayerCount));
+  for (int proc = 0; proc < communicatorSize; ++proc) {
+    const int count = allLayerCounts[static_cast<std::size_t>(proc)];
+    const int offset = layerDisplacements[static_cast<std::size_t>(proc)];
+    for (int layerIndex = 0; layerIndex < count; ++layerIndex) {
+      const int globalIndex = offset + layerIndex;
+      LayerEntry entry;
+      entry.depth = allDepths[static_cast<std::size_t>(globalIndex)];
+      entry.owningRank = proc;
+      entry.localIndex = layerIndex;
+      globalOrder.push_back(entry);
+    }
+  }
+
+  std::sort(globalOrder.begin(),
+            globalOrder.end(),
+            [](const LayerEntry& a, const LayerEntry& b) {
+              if (a.depth == b.depth) {
+                if (a.owningRank == b.owningRank) {
+                  return a.localIndex < b.localIndex;
+                }
+                return a.owningRank < b.owningRank;
+              }
+              return a.depth < b.depth;
+            });
+
+  int groupSize = 0;
+  MPI_Group_size(group, &groupSize);
+
+  MPI_Group recvGroup;
+  std::array<int[3], 1> procRange = {
+      0, std::min(this->maxSplit, groupSize) - 1, 1};
+  MPI_Group_range_incl(group, 1, procRange.data(), &recvGroup);
+
+  std::unique_ptr<Image> accumulatedImage;
+
+  for (const auto& entry : globalOrder) {
+    Image* localLayerImage = nullptr;
+    std::unique_ptr<Image> emptyLayer;
+    if (entry.owningRank == communicatorRank) {
+      localLayerImage = layers.getLayer(entry.localIndex);
+    } else {
+      emptyLayer = layers.createEmptyLayer(layeredImage->getRegionBegin(),
+                                          layeredImage->getRegionEnd());
+      emptyLayer->clear(Color(0.0f, 0.0f, 0.0f, 0.0f));
+      localLayerImage = emptyLayer.get();
+    }
+
+    std::unique_ptr<Image> layerResult = DirectSendBase::compose(
+        localLayerImage, group, recvGroup, communicator, yaml);
+
+    if (!layerResult) {
+      continue;
+    }
+
+    if (!accumulatedImage) {
+      accumulatedImage = std::move(layerResult);
+    } else {
+      accumulatedImage = accumulatedImage->blend(*layerResult);
+    }
+  }
+
+  MPI_Group_free(&recvGroup);
+
+  if (!accumulatedImage) {
+    std::unique_ptr<Image> empty = layers.createEmptyLayer(
+        layeredImage->getRegionBegin(), layeredImage->getRegionEnd());
+    empty->clear(Color(0.0f, 0.0f, 0.0f, 0.0f));
+    return empty;
+  }
+
+  return accumulatedImage;
 }
 
 enum optionIndex { MAX_IMAGE_SPLIT };

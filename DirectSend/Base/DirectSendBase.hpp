@@ -11,16 +11,18 @@
 
 #include <Common/Compositor.hpp>
 
+class LayeredImageInterface;
+
 class DirectSendBase : public Compositor {
   int maxSplit;
 
  public:
   DirectSendBase();
 
-  std::unique_ptr<Image> compose(Image *localImage,
-                                 MPI_Group group,
-                                 MPI_Comm communicator,
-                                 YamlWriter &yaml) final;
+ std::unique_ptr<Image> compose(Image *localImage,
+                                MPI_Group group,
+                                MPI_Comm communicator,
+                                YamlWriter &yaml) final;
 
   /// Performs the direct-send compositing by sending a piece of the image from
   /// every process in sendGroup to each process in recvGroup. The end result
@@ -42,6 +44,13 @@ class DirectSendBase : public Compositor {
                   MPI_Comm communicator,
                   YamlWriter &yaml) override;
   static std::vector<option::Descriptor> getOptionVector();
+
+ private:
+  std::unique_ptr<Image> composeLayered(Image *layeredImage,
+                                        LayeredImageInterface &layers,
+                                        MPI_Group group,
+                                        MPI_Comm communicator,
+                                        YamlWriter &yaml);
 };
 
 #endif  // DIRECTSENDBASE_HPP

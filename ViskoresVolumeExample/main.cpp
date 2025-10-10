@@ -8,6 +8,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <stdexcept>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -42,6 +43,7 @@
 #include <Common/ImageSparse.hpp>
 #include <Common/SavePPM.hpp>
 #include <Common/YamlWriter.hpp>
+#include <Common/LayeredImageInterface.hpp>
 
 namespace {
 
@@ -191,11 +193,110 @@ class VolumePainterViskores {
                      const glm::vec3* colorOverride) const;
 };
 
-struct BoxOrderEntry {
-  float depth;
-  int owningRank;
-  int localIndex;
+class LayeredVolumeImage : public Image, public LayeredImageInterface {
+ public:
+  LayeredVolumeImage(
+      int width,
+      int height,
+      std::vector<std::unique_ptr<ImageRGBAFloatColorDepthSort>> layersIn,
+      std::vector<float> depthHintsIn,
+      std::unique_ptr<ImageRGBAFloatColorDepthSort> prototypeIn)
+      : Image(width, height),
+        layers(std::move(layersIn)),
+        depthHints(std::move(depthHintsIn)),
+        prototype(std::move(prototypeIn)) {}
+
+  ~LayeredVolumeImage() override = default;
+
+  int getLayerCount() const override {
+    return static_cast<int>(layers.size());
+  }
+
+  Image* getLayer(int layerIndex) override {
+    return layers[static_cast<std::size_t>(layerIndex)].get();
+  }
+
+  const Image* getLayer(int layerIndex) const override {
+    return layers[static_cast<std::size_t>(layerIndex)].get();
+  }
+
+  float getLayerDepthHint(int layerIndex) const override {
+    return depthHints[static_cast<std::size_t>(layerIndex)];
+  }
+
+  std::unique_ptr<Image> createEmptyLayer(int regionBegin,
+                                          int regionEnd) const override {
+    std::unique_ptr<Image> empty =
+        prototype->createNew(regionBegin, regionEnd);
+    empty->clear(Color(0.0f, 0.0f, 0.0f, 0.0f));
+    return empty;
+  }
+
+ protected:
+  void clearImpl(const Color& color, float depth) override {
+    for (auto& layer : layers) {
+      layer->clear(color, depth);
+    }
+  }
+
+  std::unique_ptr<Image> createNewImpl(int,
+                                       int,
+                                       int,
+                                       int) const override {
+    throw std::logic_error("LayeredVolumeImage::createNewImpl not supported");
+  }
+
+  std::unique_ptr<const Image> shallowCopyImpl() const override {
+    throw std::logic_error(
+        "LayeredVolumeImage::shallowCopyImpl not supported");
+  }
+
+  std::unique_ptr<Image> copySubrange(int, int) const override {
+    throw std::logic_error(
+        "LayeredVolumeImage::copySubrange not supported");
+  }
+
+  std::unique_ptr<const Image> window(int, int) const override {
+    throw std::logic_error("LayeredVolumeImage::window not supported");
+  }
+
+  std::vector<MPI_Request> ISend(int, MPI_Comm) const override {
+    throw std::logic_error("LayeredVolumeImage::ISend not supported");
+  }
+
+  std::vector<MPI_Request> IReceive(int, MPI_Comm) override {
+    throw std::logic_error("LayeredVolumeImage::IReceive not supported");
+  }
+
+ public:
+  std::unique_ptr<Image> blend(const Image&) const override {
+    throw std::logic_error("LayeredVolumeImage::blend not supported");
+  }
+
+  bool blendIsOrderDependent() const override { return true; }
+
+ private:
+  std::vector<std::unique_ptr<ImageRGBAFloatColorDepthSort>> layers;
+  std::vector<float> depthHints;
+  std::unique_ptr<ImageRGBAFloatColorDepthSort> prototype;
 };
+
+float computeBoxDepthHint(const ViskoresVolumeExample::VolumeBox& box,
+                          const ViskoresVolumeExample::CameraParameters& camera) {
+  const glm::vec3 viewDir =
+      glm::normalize(camera.lookAt - camera.eye);
+  float minDepth = std::numeric_limits<float>::infinity();
+  for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
+    const glm::vec3 corner((cornerIndex & 1) ? box.maxCorner.x
+                                             : box.minCorner.x,
+                           (cornerIndex & 2) ? box.maxCorner.y
+                                             : box.minCorner.y,
+                           (cornerIndex & 4) ? box.maxCorner.z
+                                             : box.minCorner.z);
+    minDepth = std::min(minDepth, glm::dot(corner - camera.eye, viewDir));
+  }
+  return minDepth;
+}
 
 VolumePainterViskores::VolumePainterViskores() {
   static bool viskoresInitialized = false;
@@ -794,25 +895,6 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
       0.5f * (bounds.maxCorner - bounds.minCorner);
   const float boundingRadius = glm::length(halfExtent);
 
-  const int localBoxCount = static_cast<int>(boxes.size());
-  std::vector<int> allBoxCounts(static_cast<std::size_t>(numProcs), 0);
-  MPI_Allgather(&localBoxCount,
-                1,
-                MPI_INT,
-                allBoxCounts.data(),
-                1,
-                MPI_INT,
-                MPI_COMM_WORLD);
-
-  const int totalBoxCount =
-      std::accumulate(allBoxCounts.begin(), allBoxCounts.end(), 0);
-  std::vector<int> boxDisplacements(static_cast<std::size_t>(numProcs), 0);
-  for (int proc = 1; proc < numProcs; ++proc) {
-    boxDisplacements[static_cast<std::size_t>(proc)] =
-        boxDisplacements[static_cast<std::size_t>(proc - 1)] +
-        allBoxCounts[static_cast<std::size_t>(proc - 1)];
-  }
-
   double accumulatedMaxPaintSeconds = 0.0;
   for (int trial = 0; trial < options.trials; ++trial) {
     const float aspect =
@@ -841,170 +923,103 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
         nearPlane,
         farPlane};
 
-    std::vector<float> localDepths(static_cast<std::size_t>(localBoxCount), 0.0f);
-    const glm::vec3 viewDir = glm::normalize(camera.lookAt - camera.eye);
-    for (int i = 0; i < localBoxCount; ++i) {
-      const auto& box = boxes[static_cast<std::size_t>(i)];
-      float minDepth = std::numeric_limits<float>::infinity();
-      for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
-        const glm::vec3 corner((cornerIndex & 1) ? box.maxCorner.x
-                                                 : box.minCorner.x,
-                               (cornerIndex & 2) ? box.maxCorner.y
-                                                 : box.minCorner.y,
-                               (cornerIndex & 4) ? box.maxCorner.z
-                                                 : box.minCorner.z);
-        const float depth = glm::dot(corner - camera.eye, viewDir);
-        minDepth = std::min(minDepth, depth);
-      }
-      localDepths[static_cast<std::size_t>(i)] = minDepth;
-    }
-    std::vector<int> localIndices(static_cast<std::size_t>(localBoxCount));
-    std::iota(localIndices.begin(), localIndices.end(), 0);
+    std::vector<std::unique_ptr<ImageRGBAFloatColorDepthSort>> localLayers;
+    localLayers.reserve(boxes.size());
+    std::vector<float> depthHints;
+    depthHints.reserve(boxes.size());
 
-    std::vector<float> allDepths(static_cast<std::size_t>(totalBoxCount), 0.0f);
-    std::vector<int> allIndices(static_cast<std::size_t>(totalBoxCount), 0);
-    MPI_Allgatherv(localDepths.data(),
-                   localBoxCount,
-                   MPI_FLOAT,
-                   allDepths.data(),
-                   allBoxCounts.data(),
-                   boxDisplacements.data(),
-                   MPI_FLOAT,
-                   MPI_COMM_WORLD);
-    MPI_Allgatherv(localIndices.data(),
-                   localBoxCount,
-                   MPI_INT,
-                   allIndices.data(),
-                   allBoxCounts.data(),
-                   boxDisplacements.data(),
-                   MPI_INT,
-                   MPI_COMM_WORLD);
+    double localMaxPaintSeconds = 0.0;
+    std::vector<VolumeBox> singleBox;
+    singleBox.reserve(1);
 
-    std::vector<BoxOrderEntry> globalOrder;
-    globalOrder.reserve(static_cast<std::size_t>(totalBoxCount));
-    for (int proc = 0; proc < numProcs; ++proc) {
-      const int count = allBoxCounts[static_cast<std::size_t>(proc)];
-      const int offset = boxDisplacements[static_cast<std::size_t>(proc)];
-      for (int idx = 0; idx < count; ++idx) {
-        const int globalIndex = offset + idx;
-        BoxOrderEntry entry;
-        entry.depth = allDepths[static_cast<std::size_t>(globalIndex)];
-        entry.owningRank = proc;
-        entry.localIndex = allIndices[static_cast<std::size_t>(globalIndex)];
-        globalOrder.push_back(entry);
-      }
+    for (std::size_t boxIndex = 0; boxIndex < boxes.size(); ++boxIndex) {
+      singleBox.clear();
+      singleBox.push_back(boxes[boxIndex]);
+
+      auto layerImage =
+          std::make_unique<ImageRGBAFloatColorDepthSort>(options.width,
+                                                         options.height);
+      const double layerSeconds =
+          paint(singleBox,
+                bounds,
+                options.samplesPerAxis,
+                options.boxTransparency,
+                *layerImage,
+                camera,
+                &boxes[boxIndex].color);
+      localMaxPaintSeconds = std::max(localMaxPaintSeconds, layerSeconds);
+      depthHints.push_back(computeBoxDepthHint(boxes[boxIndex], camera));
+      localLayers.push_back(std::move(layerImage));
     }
-    std::sort(globalOrder.begin(),
-              globalOrder.end(),
-              [](const BoxOrderEntry& a, const BoxOrderEntry& b) {
-                if (a.depth == b.depth) {
-                  if (a.owningRank == b.owningRank) {
-                    return a.localIndex < b.localIndex;
-                  }
-                  return a.owningRank < b.owningRank;
-                }
-                return a.depth < b.depth;
-              });
+
+    auto prototype =
+        std::make_unique<ImageRGBAFloatColorDepthSort>(options.width,
+                                                       options.height);
+
+    LayeredVolumeImage layeredImage(options.width,
+                                    options.height,
+                                    std::move(localLayers),
+                                    std::move(depthHints),
+                                    std::move(prototype));
+
+    double maxPaintSeconds = 0.0;
+    MPI_Allreduce(&localMaxPaintSeconds,
+                  &maxPaintSeconds,
+                  1,
+                  MPI_DOUBLE,
+                  MPI_MAX,
+                  MPI_COMM_WORLD);
+    accumulatedMaxPaintSeconds += maxPaintSeconds;
+
+    if (rank == 0) {
+      std::cout << "Trial " << trial
+                << ": volume paint time (max across ranks) = "
+                << maxPaintSeconds << " s" << std::endl;
+    }
 
     MPI_Group orderedGroup =
         buildVisibilityOrderedGroup(camera, aspect, groupGuard.group);
 
-    std::unique_ptr<ImageFull> accumulatedImage;
-    double trialPaintSeconds = 0.0;
-    for (std::size_t boxOrderIndex = 0;
-         boxOrderIndex < globalOrder.size();
-         ++boxOrderIndex) {
-      const BoxOrderEntry& entry =
-          globalOrder[static_cast<std::size_t>(boxOrderIndex)];
-
-      ImageRGBAFloatColorDepthSort localImage(options.width, options.height);
-      std::vector<VolumeBox> boxesToRender;
-      if (entry.owningRank == rank &&
-          entry.localIndex < static_cast<int>(boxes.size())) {
-        boxesToRender.push_back(
-            boxes[static_cast<std::size_t>(entry.localIndex)]);
-      }
-      const glm::vec3* overrideColor =
-          boxesToRender.empty() ? nullptr : &boxesToRender[0].color;
-
-      const double localPaintSeconds =
-          paint(boxesToRender,
-                bounds,
-                options.samplesPerAxis,
-                options.boxTransparency,
-                localImage,
-                camera,
-                overrideColor);
-
-      double maxPaintSeconds = 0.0;
-      MPI_Allreduce(&localPaintSeconds,
-                    &maxPaintSeconds,
-                    1,
-                    MPI_DOUBLE,
-                    MPI_MAX,
-                    MPI_COMM_WORLD);
-      trialPaintSeconds += maxPaintSeconds;
-
-      std::unique_ptr<Image> compositedImage =
-          compositor->compose(&localImage, orderedGroup, MPI_COMM_WORLD, yaml);
-
-      if (compositedImage) {
-        std::unique_ptr<ImageFull> fullImage;
-        if (auto asFull = dynamic_cast<ImageFull*>(compositedImage.get())) {
-          fullImage.reset(asFull);
-          compositedImage.release();
-        } else if (auto asSparse =
-                       dynamic_cast<ImageSparse*>(compositedImage.get())) {
-          fullImage = asSparse->uncompress();
-        } else {
-          if (rank == 0) {
-            std::cerr << "Unsupported image type returned by compositor."
-                      << std::endl;
-          }
-          MPI_Abort(MPI_COMM_WORLD, 1);
-        }
-
-        std::unique_ptr<ImageFull> gatheredImage =
-            fullImage->Gather(0, MPI_COMM_WORLD);
-
-        if (rank == 0 && gatheredImage) {
-          if (!accumulatedImage) {
-            accumulatedImage.reset(gatheredImage.release());
-          } else {
-            std::unique_ptr<Image> blended =
-                accumulatedImage->blend(*gatheredImage);
-            auto* blendedFull = dynamic_cast<ImageFull*>(blended.get());
-            if (blendedFull == nullptr) {
-              std::cerr << "Failed to cast blended image to ImageFull."
-                        << std::endl;
-              MPI_Abort(MPI_COMM_WORLD, 1);
-            }
-            blended.release();
-            accumulatedImage.reset(blendedFull);
-          }
-        }
-      }
-    }
+    std::unique_ptr<Image> compositedImage =
+        compositor->compose(&layeredImage, orderedGroup, MPI_COMM_WORLD, yaml);
 
     MPI_Group_free(&orderedGroup);
 
-    accumulatedMaxPaintSeconds += trialPaintSeconds;
-
-    if (rank == 0 && accumulatedImage) {
-      std::cout << "Trial " << trial
-                << ": cumulative volume paint time (max across ranks) = "
-                << trialPaintSeconds << " s" << std::endl;
-
-      std::ostringstream filename;
-      filename << "viskores-volume-trial-" << trial << ".ppm";
-      if (SavePPM(*accumulatedImage, filename.str())) {
-        std::cout << "Saved trial " << trial
-                  << " volume composited image to '" << filename.str() << "'"
-                  << std::endl;
+    if (compositedImage) {
+      std::unique_ptr<ImageFull> fullImage;
+      if (auto asFull = dynamic_cast<ImageFull*>(compositedImage.get())) {
+        fullImage.reset(asFull);
+        compositedImage.release();
+      } else if (auto asSparse =
+                     dynamic_cast<ImageSparse*>(compositedImage.get())) {
+        fullImage = asSparse->uncompress();
       } else {
-        std::cerr << "Failed to save trial " << trial
-                  << " composited image to '" << filename.str() << "'"
-                  << std::endl;
+        if (rank == 0) {
+          std::cerr << "Unsupported image type returned by compositor."
+                    << std::endl;
+        }
+        MPI_Abort(MPI_COMM_WORLD, 1);
+      }
+
+      std::unique_ptr<ImageFull> gatheredImage =
+          fullImage->Gather(0, MPI_COMM_WORLD);
+
+      if (rank == 0 && gatheredImage) {
+        const int pixels = gatheredImage->getNumberOfPixels();
+        std::cout << "Trial " << trial << ": composed " << pixels
+                  << " pixels on rank 0" << std::endl;
+
+        std::ostringstream filename;
+        filename << "viskores-volume-trial-" << trial << ".ppm";
+        if (SavePPM(*gatheredImage, filename.str())) {
+          std::cout << "Saved trial " << trial
+                    << " volume composited image to '" << filename.str()
+                    << "'" << std::endl;
+        } else {
+          std::cerr << "Failed to save trial " << trial
+                    << " composited image to '" << filename.str() << "'"
+                    << std::endl;
+        }
       }
     }
   }
@@ -1018,6 +1033,7 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
 
   return 0;
 }
+
 
 int main(int argc, char* argv[]) {
   std::vector<std::string> originalArgs(argv, argv + argc);
