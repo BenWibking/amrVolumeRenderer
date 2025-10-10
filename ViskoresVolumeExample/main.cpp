@@ -469,8 +469,8 @@ ViskoresVolumeExample::createRankSpecificBoxes(
   constexpr int boxesY = 2;
   constexpr int boxesZ = 2;
   constexpr int totalBoxes = boxesX * boxesY * boxesZ;
-  constexpr float spacing = 2.0f;
   constexpr float boxScale = 0.8f;
+  constexpr float spacing = boxScale;  // centers are one box width apart
 
   const int ranks = std::max(numProcs, 1);
   const int boxesPerRank = totalBoxes / ranks;
