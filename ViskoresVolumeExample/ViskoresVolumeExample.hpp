@@ -28,6 +28,7 @@ class ViskoresVolumeExample {
     glm::vec3 minCorner;
     glm::vec3 maxCorner;
     float scalarValue;
+    glm::vec3 color;
   };
 
   struct VolumeBounds {
@@ -52,7 +53,8 @@ class ViskoresVolumeExample {
                int samplesPerAxis,
                float boxTransparency,
                ImageFull& image,
-               const CameraParameters& camera);
+               const CameraParameters& camera,
+               const glm::vec3* colorOverride = nullptr);
   Compositor* getCompositor();
   MPI_Group buildVisibilityOrderedGroup(const CameraParameters& camera,
                                         float aspect,

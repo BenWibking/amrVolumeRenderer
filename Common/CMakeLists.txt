@@ -16,6 +16,7 @@ set(srcs
   Compositor.cpp
   Image.cpp
   ImageRGBAFloatColorOnly.cpp
+  ImageRGBAFloatColorDepthSort.cpp
   ImageRGBAUByteColorFloatDepth.cpp
   ImageRGBAUByteColorOnly.cpp
   ImageRGBFloatColorDepth.cpp
@@ -39,6 +40,7 @@ set(headers
   ImageColorOnly.hpp
   ImageFull.hpp
   ImageRGBAFloatColorOnly.hpp
+  ImageRGBAFloatColorDepthSort.hpp
   ImageRGBAUByteColorFloatDepth.hpp
   ImageRGBAUByteColorOnly.hpp
   ImageRGBFloatColorDepth.hpp
