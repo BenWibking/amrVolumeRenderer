@@ -48,13 +48,13 @@ class ViskoresVolumeExample {
  private:
   void initialize() const;
   std::vector<VolumeBox> createRankSpecificBoxes(VolumeBounds& globalBounds) const;
-  double paint(const std::vector<VolumeBox>& boxes,
-               const VolumeBounds& bounds,
-               int samplesPerAxis,
-               float boxTransparency,
-               ImageFull& image,
-               const CameraParameters& camera,
-               const glm::vec3* colorOverride = nullptr);
+  void paint(const std::vector<VolumeBox>& boxes,
+             const VolumeBounds& bounds,
+             int samplesPerAxis,
+             float boxTransparency,
+             ImageFull& image,
+             const CameraParameters& camera,
+             const glm::vec3* colorOverride = nullptr);
   Compositor* getCompositor();
   MPI_Group buildVisibilityOrderedGroup(const CameraParameters& camera,
                                         float aspect,

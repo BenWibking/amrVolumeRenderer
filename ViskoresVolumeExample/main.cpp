@@ -1,13 +1,10 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
-#include <chrono>
 #include <cmath>
-#include <fstream>
 #include <iostream>
 #include <limits>
 #include <memory>
-#include <numeric>
 #include <stdexcept>
 #include <random>
 #include <sstream>
@@ -52,19 +49,17 @@ struct Options {
   int trials = 1;
   int samplesPerAxis = 64;
   float boxTransparency = 0.0f;
-  std::string yamlOutput;
 };
 
 void printUsage() {
   std::cout << "Usage: ViskoresVolumeExample [--width W] [--height H] "
-               "[--trials N] [--samples S] [--yaml-output FILE]\n"
+               "[--trials N] [--samples S]\n"
             << "  --width W        Image width (default: 512)\n"
             << "  --height H       Image height (default: 512)\n"
             << "  --trials N       Number of render trials (default: 1)\n"
             << "  --samples S      Samples per axis for the volume (default: 64)\n"
             << "  --box-transparency T  Transparency factor per box in [0,1] "
                "(default: 0)\n"
-            << "  --yaml-output F  Write timing information to YAML file F\n"
             << "  -h, --help       Show this help message\n";
 }
 
@@ -108,8 +103,6 @@ Options parseOptions(int argc, char** argv, int rank, bool& exitEarly) {
         throw std::runtime_error(
             "box transparency must be between 0 and 1");
       }
-    } else if (arg == "--yaml-output") {
-      options.yamlOutput = requireValue(arg);
     } else if (arg == "--help" || arg == "-h") {
       if (rank == 0) {
         printUsage();
@@ -154,15 +147,15 @@ class VolumePainterViskores {
   VolumePainterViskores();
   ~VolumePainterViskores() = default;
 
-  double paint(const std::vector<ViskoresVolumeExample::VolumeBox>& boxes,
-               const ViskoresVolumeExample::VolumeBounds& bounds,
-               int samplesPerAxis,
-               int rank,
-               int numProcs,
-               float boxTransparency,
-               ImageFull& image,
-               const ViskoresVolumeExample::CameraParameters& camera,
-               const glm::vec3* colorOverride = nullptr);
+  void paint(const std::vector<ViskoresVolumeExample::VolumeBox>& boxes,
+             const ViskoresVolumeExample::VolumeBounds& bounds,
+             int samplesPerAxis,
+             int rank,
+             int numProcs,
+             float boxTransparency,
+             ImageFull& image,
+             const ViskoresVolumeExample::CameraParameters& camera,
+             const glm::vec3* colorOverride = nullptr);
 
  private:
   viskores::cont::DataSet boxesToDataSet(
@@ -455,7 +448,7 @@ void VolumePainterViskores::canvasToImage(
   }
 }
 
-double VolumePainterViskores::paint(
+void VolumePainterViskores::paint(
     const std::vector<ViskoresVolumeExample::VolumeBox>& boxes,
     const ViskoresVolumeExample::VolumeBounds& bounds,
     int samplesPerAxis,
@@ -504,24 +497,15 @@ double VolumePainterViskores::paint(
 
     setupCamera(localView, camera);
 
-    const auto startTime = std::chrono::high_resolution_clock::now();
     localView.Paint();
-    const auto endTime = std::chrono::high_resolution_clock::now();
 
     canvasToImage(localCanvas, image, colorOverride);
-
-    const double seconds =
-        std::chrono::duration_cast<std::chrono::duration<double>>(endTime -
-                                                                  startTime)
-            .count();
 
     if (rank == 0) {
       std::cout << "VolumePainterViskores: Rendered volume with "
                 << samplesPerAxis << "^3 samples across " << numProcs
                 << " ranks" << std::endl;
     }
-
-    return seconds;
   } catch (const std::exception& error) {
     std::cerr << "VolumePainterViskores error on rank " << rank << ": "
               << error.what() << std::endl;
@@ -678,7 +662,7 @@ ViskoresVolumeExample::createRankSpecificBoxes(
   return boxes;
 }
 
-double ViskoresVolumeExample::paint(
+void ViskoresVolumeExample::paint(
     const std::vector<VolumeBox>& boxes,
     const VolumeBounds& bounds,
     int samplesPerAxis,
@@ -688,11 +672,11 @@ double ViskoresVolumeExample::paint(
     const glm::vec3* colorOverride) {
   if (boxes.empty()) {
     image.clear(Color(0.0f, 0.0f, 0.0f, 0.0f));
-    return 0.0;
+    return;
   }
 
   static VolumePainterViskores painter;
-  return painter.paint(
+  painter.paint(
       boxes,
       bounds,
       samplesPerAxis,
@@ -846,23 +830,7 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
     return 1;
   }
 
-  std::ofstream yamlFile;
-  std::ostringstream yamlBuffer;
-  std::ostream* yamlStream = nullptr;
-  if (!options.yamlOutput.empty()) {
-    yamlFile.open(options.yamlOutput.c_str());
-    if (!yamlFile.good()) {
-      if (rank == 0) {
-        std::cerr << "Failed to open YAML output file '"
-                  << options.yamlOutput << "'." << std::endl;
-      }
-      return 1;
-    }
-    yamlStream = &yamlFile;
-  } else {
-    yamlStream = &yamlBuffer;
-  }
-  YamlWriter yaml(*yamlStream);
+  YamlWriter yaml;
 
   MpiGroupGuard groupGuard;
   MPI_Comm_group(MPI_COMM_WORLD, &groupGuard.group);
@@ -872,7 +840,6 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
       0.5f * (bounds.maxCorner - bounds.minCorner);
   const float boundingRadius = glm::length(halfExtent);
 
-  double accumulatedMaxPaintSeconds = 0.0;
   for (int trial = 0; trial < options.trials; ++trial) {
     const float aspect =
         static_cast<float>(options.width) / static_cast<float>(options.height);
@@ -905,7 +872,6 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
     std::vector<float> depthHints;
     depthHints.reserve(boxes.size());
 
-    double localMaxPaintSeconds = 0.0;
     std::vector<VolumeBox> singleBox(1);
 
     for (std::size_t boxIndex = 0; boxIndex < boxes.size(); ++boxIndex) {
@@ -914,15 +880,13 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
       auto layerImage =
           std::make_unique<ImageRGBAFloatColorDepthSort>(options.width,
                                                          options.height);
-      const double layerSeconds =
-          paint(singleBox,
-                bounds,
-                options.samplesPerAxis,
-                options.boxTransparency,
-                *layerImage,
-                camera,
-                &boxes[boxIndex].color);
-      localMaxPaintSeconds = std::max(localMaxPaintSeconds, layerSeconds);
+      paint(singleBox,
+            bounds,
+            options.samplesPerAxis,
+            options.boxTransparency,
+            *layerImage,
+            camera,
+            &boxes[boxIndex].color);
       depthHints.push_back(computeBoxDepthHint(boxes[boxIndex], camera));
       localLayers.push_back(std::move(layerImage));
     }
@@ -936,21 +900,6 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
                                     std::move(localLayers),
                                     std::move(depthHints),
                                     std::move(prototype));
-
-    double maxPaintSeconds = 0.0;
-    MPI_Allreduce(&localMaxPaintSeconds,
-                  &maxPaintSeconds,
-                  1,
-                  MPI_DOUBLE,
-                  MPI_MAX,
-                  MPI_COMM_WORLD);
-    accumulatedMaxPaintSeconds += maxPaintSeconds;
-
-    if (rank == 0) {
-      std::cout << "Trial " << trial
-                << ": volume paint time (max across ranks) = "
-                << maxPaintSeconds << " s" << std::endl;
-    }
 
     MPI_Group orderedGroup =
         buildVisibilityOrderedGroup(camera, aspect, groupGuard.group);
@@ -997,13 +946,6 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
         }
       }
     }
-  }
-
-  if (rank == 0 && options.trials > 0) {
-    const double averageMaxPaintSeconds =
-        accumulatedMaxPaintSeconds / static_cast<double>(options.trials);
-    std::cout << "Average volume paint time (max across ranks): "
-              << averageMaxPaintSeconds << " s" << std::endl;
   }
 
   return 0;
