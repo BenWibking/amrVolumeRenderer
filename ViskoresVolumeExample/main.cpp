@@ -11,7 +11,6 @@
 #include <stdexcept>
 #include <random>
 #include <sstream>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -75,53 +74,42 @@ Options parseOptions(int argc, char** argv, int rank, bool& exitEarly) {
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg(argv[i]);
-    if (arg == "--width") {
+    const auto requireValue = [&](const std::string& flag) -> std::string {
       if (i + 1 >= argc) {
-        throw std::runtime_error("missing value for --width");
+        throw std::runtime_error("missing value for " + flag);
       }
-      options.width = std::stoi(argv[++i]);
+      return argv[++i];
+    };
+
+    if (arg == "--width") {
+      options.width = std::stoi(requireValue(arg));
       if (options.width <= 0) {
         throw std::runtime_error("image width must be positive");
       }
     } else if (arg == "--height") {
-      if (i + 1 >= argc) {
-        throw std::runtime_error("missing value for --height");
-      }
-      options.height = std::stoi(argv[++i]);
+      options.height = std::stoi(requireValue(arg));
       if (options.height <= 0) {
         throw std::runtime_error("image height must be positive");
       }
     } else if (arg == "--trials") {
-      if (i + 1 >= argc) {
-        throw std::runtime_error("missing value for --trials");
-      }
-      options.trials = std::stoi(argv[++i]);
+      options.trials = std::stoi(requireValue(arg));
       if (options.trials <= 0) {
         throw std::runtime_error("number of trials must be positive");
       }
     } else if (arg == "--samples") {
-      if (i + 1 >= argc) {
-        throw std::runtime_error("missing value for --samples");
-      }
-      options.samplesPerAxis = std::stoi(argv[++i]);
+      options.samplesPerAxis = std::stoi(requireValue(arg));
       if (options.samplesPerAxis < 2) {
         throw std::runtime_error("samples per axis must be at least 2");
       }
     } else if (arg == "--box-transparency") {
-      if (i + 1 >= argc) {
-        throw std::runtime_error("missing value for --box-transparency");
-      }
-      options.boxTransparency = std::stof(argv[++i]);
+      options.boxTransparency = std::stof(requireValue(arg));
       if (options.boxTransparency < 0.0f ||
           options.boxTransparency > 1.0f) {
         throw std::runtime_error(
             "box transparency must be between 0 and 1");
       }
     } else if (arg == "--yaml-output") {
-      if (i + 1 >= argc) {
-        throw std::runtime_error("missing value for --yaml-output");
-      }
-      options.yamlOutput = argv[++i];
+      options.yamlOutput = requireValue(arg);
     } else if (arg == "--help" || arg == "-h") {
       if (rank == 0) {
         printUsage();
@@ -439,32 +427,25 @@ void VolumePainterViskores::canvasToImage(
 
   const int width = image.getWidth();
   const int height = image.getHeight();
+  const auto clampUnit = [](float value) {
+    return std::clamp(value, 0.0f, 1.0f);
+  };
 
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
       const int pixelIndex = y * width + x;
       const viskores::Vec4f color = colorPortal.Get(pixelIndex);
-      const float alpha =
-          std::clamp(static_cast<float>(color[3]), 0.0f, 1.0f);
-      const float clampedR =
-          std::clamp(static_cast<float>(color[0]), 0.0f, 1.0f);
-      const float clampedG =
-          std::clamp(static_cast<float>(color[1]), 0.0f, 1.0f);
-      const float clampedB =
-          std::clamp(static_cast<float>(color[2]), 0.0f, 1.0f);
-      float outR = clampedR;
-      float outG = clampedG;
-      float outB = clampedB;
+      const float alpha = clampUnit(static_cast<float>(color[3]));
+      float red = clampUnit(static_cast<float>(color[0]));
+      float green = clampUnit(static_cast<float>(color[1]));
+      float blue = clampUnit(static_cast<float>(color[2]));
       if (colorOverride != nullptr) {
-        const float intensity =
-            0.33333334f * (clampedR + clampedG + clampedB);
-        outR = std::clamp(intensity * colorOverride->x, 0.0f, 1.0f);
-        outG = std::clamp(intensity * colorOverride->y, 0.0f, 1.0f);
-        outB = std::clamp(intensity * colorOverride->z, 0.0f, 1.0f);
+        const float intensity = (red + green + blue) / 3.0f;
+        red = clampUnit(intensity * colorOverride->x);
+        green = clampUnit(intensity * colorOverride->y);
+        blue = clampUnit(intensity * colorOverride->z);
       }
-      depthSortedImage->setColor(x,
-                                 y,
-                                 Color(outR, outG, outB, alpha));
+      depthSortedImage->setColor(x, y, Color(red, green, blue, alpha));
       float depth = depthPortal.Get(pixelIndex);
       if (!std::isfinite(depth) || alpha <= 0.0f) {
         depth = std::numeric_limits<float>::infinity();
@@ -632,12 +613,8 @@ ViskoresVolumeExample::createRankSpecificBoxes(
 
     boxes.push_back(box);
 
-    localMin.x = std::min(localMin.x, box.minCorner.x);
-    localMin.y = std::min(localMin.y, box.minCorner.y);
-    localMin.z = std::min(localMin.z, box.minCorner.z);
-    localMax.x = std::max(localMax.x, box.maxCorner.x);
-    localMax.y = std::max(localMax.y, box.maxCorner.y);
-    localMax.z = std::max(localMax.z, box.maxCorner.z);
+    localMin = glm::min(localMin, box.minCorner);
+    localMax = glm::max(localMax, box.maxCorner);
   }
 
   if (boxes.empty()) {
@@ -929,12 +906,10 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
     depthHints.reserve(boxes.size());
 
     double localMaxPaintSeconds = 0.0;
-    std::vector<VolumeBox> singleBox;
-    singleBox.reserve(1);
+    std::vector<VolumeBox> singleBox(1);
 
     for (std::size_t boxIndex = 0; boxIndex < boxes.size(); ++boxIndex) {
-      singleBox.clear();
-      singleBox.push_back(boxes[boxIndex]);
+      singleBox[0] = boxes[boxIndex];
 
       auto layerImage =
           std::make_unique<ImageRGBAFloatColorDepthSort>(options.width,
