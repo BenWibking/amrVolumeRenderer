@@ -53,9 +53,15 @@ class ViskoresVolumeExample {
                ImageFull& image,
                const CameraParameters& camera);
   Compositor* getCompositor();
+  MPI_Group buildVisibilityOrderedGroup(const CameraParameters& camera,
+                                        float aspect,
+                                        MPI_Group baseGroup) const;
 
   int rank;
   int numProcs;
+
+  mutable glm::vec3 localCentroid;
+  mutable bool hasLocalData;
 };
 
 #endif  // VISKORES_VOLUME_EXAMPLE_HPP

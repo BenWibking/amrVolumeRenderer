@@ -6,6 +6,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -15,6 +16,7 @@
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <viskores/Types.h>
 #include <viskores/cont/ArrayHandle.h>
@@ -35,7 +37,7 @@
 #include <DirectSend/Base/DirectSendBase.hpp>
 
 #include <Common/Color.hpp>
-#include <Common/ImageRGBAUByteColorFloatDepth.hpp>
+#include <Common/ImageRGBAFloatColorOnly.hpp>
 #include <Common/ImageSparse.hpp>
 #include <Common/SavePPM.hpp>
 #include <Common/YamlWriter.hpp>
@@ -258,33 +260,14 @@ viskores::cont::DataSet VolumePainterViskores::boxesToDataSet(
 
 viskores::cont::ColorTable VolumePainterViskores::buildColorTable(
     int numProcs) const {
-  viskores::cont::ColorTable colorTable(viskores::ColorSpace::RGB);
-  colorTable.AddPoint(0.0f, viskores::Vec3f_32(0.0f, 0.0f, 0.0f));
+  (void)numProcs;
+  viskores::cont::ColorTable colorTable("inferno");
   colorTable.AddPointAlpha(0.0f, 0.0f);
-
-  constexpr std::array<viskores::Vec3f_32, 8> kBaseColors = {
-      viskores::Vec3f_32(0.941f, 0.341f, 0.200f),
-      viskores::Vec3f_32(0.235f, 0.702f, 0.443f),
-      viskores::Vec3f_32(0.192f, 0.494f, 0.773f),
-      viskores::Vec3f_32(0.984f, 0.686f, 0.250f),
-      viskores::Vec3f_32(0.414f, 0.353f, 0.804f),
-      viskores::Vec3f_32(0.098f, 0.686f, 0.815f),
-      viskores::Vec3f_32(0.596f, 0.306f, 0.639f),
-      viskores::Vec3f_32(0.129f, 0.588f, 0.953f)};
-
-  const int rankSamples = std::max(numProcs, 1);
-  for (int proc = 0; proc < rankSamples; ++proc) {
-    const float scalarValue =
-        (static_cast<float>(proc) + 1.0f) /
-        (static_cast<float>(rankSamples) + 1.0f);
-    const viskores::Vec3f_32 color =
-        kBaseColors[static_cast<std::size_t>(proc) % kBaseColors.size()];
-    colorTable.AddPoint(scalarValue, color);
-    colorTable.AddPointAlpha(scalarValue, 0.85f);
-  }
-
-  colorTable.AddPoint(1.0f, kBaseColors[0]);
-  colorTable.AddPointAlpha(1.0f, 0.9f);
+  colorTable.AddPointAlpha(0.15f, 0.02f);
+  colorTable.AddPointAlpha(0.35f, 0.05f);
+  colorTable.AddPointAlpha(0.6f, 0.1f);
+  colorTable.AddPointAlpha(0.85f, 0.18f);
+  colorTable.AddPointAlpha(1.0f, 0.3f);
   return colorTable;
 }
 
@@ -312,7 +295,6 @@ void VolumePainterViskores::canvasToImage(
     const viskores::rendering::Canvas& viskoresCanvas,
     ImageFull& image) const {
   const auto colorPortal = viskoresCanvas.GetColorBuffer().ReadPortal();
-  const auto depthPortal = viskoresCanvas.GetDepthBuffer().ReadPortal();
 
   const int width = image.getWidth();
   const int height = image.getHeight();
@@ -321,11 +303,9 @@ void VolumePainterViskores::canvasToImage(
     for (int x = 0; x < width; ++x) {
       const int pixelIndex = y * width + x;
       const viskores::Vec4f color = colorPortal.Get(pixelIndex);
-      const float depth = depthPortal.Get(pixelIndex);
       image.setColor(x,
                      y,
                      Color(color[0], color[1], color[2], color[3]));
-      image.setDepth(x, y, depth);
     }
   }
 }
@@ -339,8 +319,76 @@ double VolumePainterViskores::paint(
     ImageFull& image,
     const ViskoresVolumeExample::CameraParameters& camera) {
   try {
+    const int localBoxCount = static_cast<int>(boxes.size());
+    std::vector<int> counts(numProcs, 0);
+    MPI_Allgather(&localBoxCount,
+                  1,
+                  MPI_INT,
+                  counts.data(),
+                  1,
+                  MPI_INT,
+                  MPI_COMM_WORLD);
+
+    const int totalBoxCount =
+        std::accumulate(counts.begin(), counts.end(), 0);
+
+    std::vector<ViskoresVolumeExample::VolumeBox> globalBoxes;
+    globalBoxes.reserve(static_cast<std::size_t>(totalBoxCount));
+
+    if (totalBoxCount > 0) {
+      constexpr std::size_t kPackedBoxSize = 7;
+      std::vector<float> sendBuffer(
+          static_cast<std::size_t>(localBoxCount) * kPackedBoxSize, 0.0f);
+      for (int i = 0; i < localBoxCount; ++i) {
+        const auto& box = boxes[static_cast<std::size_t>(i)];
+        std::size_t base = static_cast<std::size_t>(i) * kPackedBoxSize;
+        sendBuffer[base + 0] = box.minCorner.x;
+        sendBuffer[base + 1] = box.minCorner.y;
+        sendBuffer[base + 2] = box.minCorner.z;
+        sendBuffer[base + 3] = box.maxCorner.x;
+        sendBuffer[base + 4] = box.maxCorner.y;
+        sendBuffer[base + 5] = box.maxCorner.z;
+        sendBuffer[base + 6] = box.scalarValue;
+      }
+
+      std::vector<int> recvCounts(numProcs, 0);
+      std::vector<int> recvDispls(numProcs, 0);
+      for (int i = 0; i < numProcs; ++i) {
+        recvCounts[i] = counts[i] * static_cast<int>(kPackedBoxSize);
+        if (i > 0) {
+          recvDispls[i] = recvDispls[i - 1] + recvCounts[i - 1];
+        }
+      }
+
+      std::vector<float> recvBuffer(
+          static_cast<std::size_t>(totalBoxCount) * kPackedBoxSize, 0.0f);
+
+      MPI_Allgatherv(sendBuffer.data(),
+                     recvCounts[rank],
+                     MPI_FLOAT,
+                     recvBuffer.data(),
+                     recvCounts.data(),
+                     recvDispls.data(),
+                     MPI_FLOAT,
+                     MPI_COMM_WORLD);
+
+      for (int boxIdx = 0; boxIdx < totalBoxCount; ++boxIdx) {
+        const std::size_t base =
+            static_cast<std::size_t>(boxIdx) * kPackedBoxSize;
+        ViskoresVolumeExample::VolumeBox box;
+        box.minCorner = glm::vec3(recvBuffer[base + 0],
+                                  recvBuffer[base + 1],
+                                  recvBuffer[base + 2]);
+        box.maxCorner = glm::vec3(recvBuffer[base + 3],
+                                  recvBuffer[base + 4],
+                                  recvBuffer[base + 5]);
+        box.scalarValue = recvBuffer[base + 6];
+        globalBoxes.push_back(box);
+      }
+    }
+
     viskores::cont::DataSet dataset =
-        boxesToDataSet(boxes, bounds, samplesPerAxis);
+        boxesToDataSet(globalBoxes, bounds, samplesPerAxis);
     viskores::cont::ColorTable colorTable = buildColorTable(numProcs);
 
     const glm::vec3 span = bounds.maxCorner - bounds.minCorner;
@@ -401,7 +449,8 @@ double VolumePainterViskores::paint(
 
 }  // namespace
 
-ViskoresVolumeExample::ViskoresVolumeExample() : rank(0), numProcs(1) {
+ViskoresVolumeExample::ViskoresVolumeExample()
+    : rank(0), numProcs(1), localCentroid(0.0f), hasLocalData(false) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
 }
@@ -462,8 +511,8 @@ ViskoresVolumeExample::createRankSpecificBoxes(
     VolumeBox box;
     box.minCorner = offset - halfExtent;
     box.maxCorner = offset + halfExtent;
-    box.scalarValue = (static_cast<float>(rank) + 1.0f) /
-                      (static_cast<float>(numProcs) + 1.0f);
+    box.scalarValue = (static_cast<float>(boxIndex) + 1.0f) /
+                      (static_cast<float>(totalBoxes) + 1.0f);
 
     boxes.push_back(box);
 
@@ -521,6 +570,14 @@ ViskoresVolumeExample::createRankSpecificBoxes(
   globalBounds.minCorner = minCorner - padding;
   globalBounds.maxCorner = maxCorner + padding;
 
+  if (!boxes.empty()) {
+    localCentroid = 0.5f * (localMin + localMax);
+    hasLocalData = true;
+  } else {
+    localCentroid = glm::vec3(0.0f);
+    hasLocalData = false;
+  }
+
   return boxes;
 }
 
@@ -538,6 +595,72 @@ double ViskoresVolumeExample::paint(
 Compositor* ViskoresVolumeExample::getCompositor() {
   static DirectSendBase compositor;
   return &compositor;
+}
+
+MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
+    const CameraParameters& camera,
+    float aspect,
+    MPI_Group baseGroup) const {
+  const float fovYRadians = glm::radians(camera.fovYDegrees);
+  const glm::mat4 modelview =
+      glm::lookAt(camera.eye, camera.lookAt, camera.up);
+  const glm::mat4 projection =
+      glm::perspective(fovYRadians, aspect, camera.nearPlane, camera.farPlane);
+
+  std::array<float, 3> localCentroidArray = {
+      localCentroid.x, localCentroid.y, localCentroid.z};
+  std::vector<float> allCentroids(static_cast<std::size_t>(numProcs) * 3, 0.0f);
+  MPI_Allgather(localCentroidArray.data(),
+                3,
+                MPI_FLOAT,
+                allCentroids.data(),
+                3,
+                MPI_FLOAT,
+                MPI_COMM_WORLD);
+
+  int localHasDataFlag = hasLocalData ? 1 : 0;
+  std::vector<int> allHasData(numProcs, 0);
+  MPI_Allgather(&localHasDataFlag,
+                1,
+                MPI_INT,
+                allHasData.data(),
+                1,
+                MPI_INT,
+                MPI_COMM_WORLD);
+
+  std::vector<std::pair<float, int>> depthOrder(numProcs);
+  for (int proc = 0; proc < numProcs; ++proc) {
+    if (allHasData[proc]) {
+      const glm::vec4 centroid(allCentroids[proc * 3 + 0],
+                               allCentroids[proc * 3 + 1],
+                               allCentroids[proc * 3 + 2],
+                               1.0f);
+      const glm::vec4 clipSpace = projection * (modelview * centroid);
+      const float normalizedDepth =
+          (clipSpace.w != 0.0f)
+              ? (clipSpace.z / clipSpace.w)
+              : std::numeric_limits<float>::infinity();
+      depthOrder[proc] = std::make_pair(normalizedDepth, proc);
+    } else {
+      depthOrder[proc] =
+          std::make_pair(std::numeric_limits<float>::infinity(), proc);
+    }
+  }
+
+  std::sort(depthOrder.begin(),
+            depthOrder.end(),
+            [](const std::pair<float, int>& a,
+               const std::pair<float, int>& b) { return a.first < b.first; });
+
+  std::vector<int> rankOrder(static_cast<std::size_t>(numProcs));
+  for (int i = 0; i < numProcs; ++i) {
+    rankOrder[static_cast<std::size_t>(i)] =
+        depthOrder[static_cast<std::size_t>(i)].second;
+  }
+
+  MPI_Group orderedGroup = MPI_GROUP_NULL;
+  MPI_Group_incl(baseGroup, numProcs, rankOrder.data(), &orderedGroup);
+  return orderedGroup;
 }
 
 int ViskoresVolumeExample::run(int argc, char** argv) {
@@ -600,7 +723,7 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
 
   double accumulatedMaxPaintSeconds = 0.0;
   for (int trial = 0; trial < options.trials; ++trial) {
-    ImageRGBAUByteColorFloatDepth localImage(options.width, options.height);
+    ImageRGBAFloatColorOnly localImage(options.width, options.height);
 
     const float aspect =
         static_cast<float>(options.width) / static_cast<float>(options.height);
@@ -650,8 +773,13 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
                 << maxPaintSeconds << " s" << std::endl;
     }
 
+    MPI_Group orderedGroup =
+        buildVisibilityOrderedGroup(camera, aspect, groupGuard.group);
+
     std::unique_ptr<Image> compositedImage =
-        compositor->compose(&localImage, groupGuard.group, MPI_COMM_WORLD, yaml);
+        compositor->compose(&localImage, orderedGroup, MPI_COMM_WORLD, yaml);
+
+    MPI_Group_free(&orderedGroup);
 
     if (compositedImage) {
       std::unique_ptr<ImageFull> fullImage;

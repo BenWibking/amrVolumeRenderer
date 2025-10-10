@@ -36,6 +36,6 @@ The application writes composited `.ppm` images named `viskores-volume-trial-<N>
 ## Implementation Notes
 
 - Global bounds are computed with MPI reductions to keep camera framing consistent across ranks.
-- The scalar value assigned to a voxel encodes the owning rank; a color table maps those values to distinct hues and opacities.
+- The scalar value assigned to a voxel encodes the owning rank; a shared gather step ensures every rank shades the full set of boxes while colors remain tied to the original owners.
 - The camera animates around the volume for each trial to illustrate how the composited result changes with view direction.
 - Camera state (eye, aim point, up vector, FOV, and clipping range) is computed explicitly per trial and passed straight to Viskores, avoiding any OpenGL matrix conversions.
