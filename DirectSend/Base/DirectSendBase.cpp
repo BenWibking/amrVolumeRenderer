@@ -328,14 +328,35 @@ std::unique_ptr<Image> DirectSendBase::composeLayered(
 
   std::unique_ptr<Image> accumulatedImage;
 
-  for (const auto& entry : globalOrder) {
+  std::size_t index = 0;
+  while (index < globalOrder.size()) {
+    const int owningRank = globalOrder[index].owningRank;
+    const std::size_t runStart = index;
+    while (index < globalOrder.size() &&
+           globalOrder[index].owningRank == owningRank) {
+      ++index;
+    }
+
     Image* localLayerImage = nullptr;
+    std::unique_ptr<Image> combinedLocalLayers;
     std::unique_ptr<Image> emptyLayer;
-    if (entry.owningRank == communicatorRank) {
-      localLayerImage = layers.getLayer(entry.localIndex);
+
+    if (owningRank == communicatorRank) {
+      const int firstLocalIndex = globalOrder[runStart].localIndex;
+      if (index == runStart + 1) {
+        localLayerImage = layers.getLayer(firstLocalIndex);
+      } else {
+        combinedLocalLayers = layers.getLayer(firstLocalIndex)->deepCopy();
+        for (std::size_t runIndex = runStart + 1; runIndex < index; ++runIndex) {
+          const int nextLocalIndex = globalOrder[runIndex].localIndex;
+          combinedLocalLayers =
+              combinedLocalLayers->blend(*layers.getLayer(nextLocalIndex));
+        }
+        localLayerImage = combinedLocalLayers.get();
+      }
     } else {
       emptyLayer = layers.createEmptyLayer(layeredImage->getRegionBegin(),
-                                          layeredImage->getRegionEnd());
+                                           layeredImage->getRegionEnd());
       emptyLayer->clear(Color(0.0f, 0.0f, 0.0f, 0.0f));
       localLayerImage = emptyLayer.get();
     }
