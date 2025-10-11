@@ -22,7 +22,6 @@ set(srcs
   ImageSparse.cpp
   Mesh.cpp
   SavePPM.cpp
-  YamlWriter.cpp
   )
 
 set(headers
@@ -46,7 +45,6 @@ set(headers
   SavePPM.hpp
   Triangle.hpp
   Viewport.hpp
-  YamlWriter.hpp
   )
 
 miniGraphics_create_config_header("common library")

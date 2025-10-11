@@ -19,8 +19,7 @@ class DirectSendBase : public Compositor {
 
   std::unique_ptr<Image> compose(Image* localImage,
                                  MPI_Group group,
-                                 MPI_Comm communicator,
-                                 YamlWriter& yaml) final;
+                                 MPI_Comm communicator) final;
 
   /// Performs the direct-send compositing by sending a piece of the image from
   /// every process in sendGroup to each process in recvGroup. The end result
@@ -35,15 +34,13 @@ class DirectSendBase : public Compositor {
   static std::unique_ptr<Image> compose(Image* localImage,
                                         MPI_Group sendGroup,
                                         MPI_Group recvGroup,
-                                        MPI_Comm communicator,
-                                        YamlWriter& yaml);
+                                        MPI_Comm communicator);
 
  private:
   std::unique_ptr<Image> composeLayered(Image* layeredImage,
                                         LayeredImageInterface& layers,
                                         MPI_Group group,
-                                        MPI_Comm communicator,
-                                        YamlWriter& yaml);
+                                        MPI_Comm communicator);
 };
 
 #endif  // DIRECTSENDBASE_HPP

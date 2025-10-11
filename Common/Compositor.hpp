@@ -12,7 +12,6 @@
 #include <miniGraphicsConfig.h>
 
 #include <Common/Image.hpp>
-#include <Common/YamlWriter.hpp>
 
 #include <mpi.h>
 
@@ -34,8 +33,7 @@ class Compositor {
   ///
   virtual std::unique_ptr<Image> compose(Image *localImage,
                                          MPI_Group group,
-                                         MPI_Comm communicator,
-                                         YamlWriter &yaml) = 0;
+                                         MPI_Comm communicator) = 0;
 
   virtual ~Compositor() = default;
 };

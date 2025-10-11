@@ -191,8 +191,7 @@ static std::unique_ptr<Image> ProcessIncomingImages(
 std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
                                                MPI_Group sendGroup,
                                                MPI_Group recvGroup,
-                                               MPI_Comm communicator,
-                                               YamlWriter&) {
+                                               MPI_Comm communicator) {
   std::vector<MPI_Request> recvRequests;
   std::vector<std::unique_ptr<const Image>> incomingImages;
   PostReceives(localImage,
@@ -225,10 +224,9 @@ DirectSendBase::DirectSendBase() = default;
 
 std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
                                                MPI_Group group,
-                                               MPI_Comm communicator,
-                                               YamlWriter& yaml) {
+                                               MPI_Comm communicator) {
   if (auto* layered = dynamic_cast<LayeredImageInterface*>(localImage)) {
-    return this->composeLayered(localImage, *layered, group, communicator, yaml);
+    return this->composeLayered(localImage, *layered, group, communicator);
   }
 
   int groupSize;
@@ -240,7 +238,7 @@ std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
   MPI_Group_range_incl(group, 1, procRange, &recvGroup);
 
   std::unique_ptr<Image> result =
-      this->compose(localImage, group, recvGroup, communicator, yaml);
+      this->compose(localImage, group, recvGroup, communicator);
 
   MPI_Group_free(&recvGroup);
 
@@ -251,8 +249,7 @@ std::unique_ptr<Image> DirectSendBase::composeLayered(
     Image* layeredImage,
     LayeredImageInterface& layers,
     MPI_Group group,
-    MPI_Comm communicator,
-    YamlWriter& yaml) {
+    MPI_Comm communicator) {
   int communicatorSize = 0;
   int communicatorRank = 0;
   MPI_Comm_size(communicator, &communicatorSize);
@@ -365,7 +362,7 @@ std::unique_ptr<Image> DirectSendBase::composeLayered(
     }
 
     std::unique_ptr<Image> layerResult = DirectSendBase::compose(
-        localLayerImage, group, recvGroup, communicator, yaml);
+        localLayerImage, group, recvGroup, communicator);
 
     if (!layerResult) {
       continue;

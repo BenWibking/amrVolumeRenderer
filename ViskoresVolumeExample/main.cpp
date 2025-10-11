@@ -38,7 +38,6 @@
 #include <Common/ImageRGBAFloatColorDepthSort.hpp>
 #include <Common/ImageSparse.hpp>
 #include <Common/SavePPM.hpp>
-#include <Common/YamlWriter.hpp>
 #include <Common/LayeredImageInterface.hpp>
 
 namespace {
@@ -830,8 +829,6 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
     return 1;
   }
 
-  YamlWriter yaml;
-
   MpiGroupGuard groupGuard;
   MPI_Comm_group(MPI_COMM_WORLD, &groupGuard.group);
 
@@ -905,7 +902,7 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
         buildVisibilityOrderedGroup(camera, aspect, groupGuard.group);
 
     std::unique_ptr<Image> compositedImage =
-        compositor->compose(&layeredImage, orderedGroup, MPI_COMM_WORLD, yaml);
+        compositor->compose(&layeredImage, orderedGroup, MPI_COMM_WORLD);
 
     MPI_Group_free(&orderedGroup);
 
