@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <random>
 #include <sstream>
+#include <functional>
 #include <utility>
 #include <string>
 #include <vector>
@@ -1003,115 +1004,23 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
            std::fabs(aMax),
            std::fabs(bMin),
            std::fabs(bMax),
-           std::fabs(overlapMin),
-           std::fabs(overlapMax)});
+             std::fabs(overlapMin),
+             std::fabs(overlapMax)});
       return (overlapMax - overlapMin) > 1e-5f * scale;
     };
 
-    std::vector<std::vector<int>> adjacency(
-        static_cast<std::size_t>(totalBoxes));
-    std::vector<int> indegree(static_cast<std::size_t>(totalBoxes), 0);
-
-    auto addEdge = [&](int from, int to) {
-      if (from == to) {
-        return;
-      }
-      auto& edges = adjacency[static_cast<std::size_t>(from)];
-      if (std::find(edges.begin(), edges.end(), to) == edges.end()) {
-        edges.push_back(to);
-        ++indegree[static_cast<std::size_t>(to)];
-      }
+    auto updateBoxDepth = [&](BoxInfo& info) {
+      const auto depthRange = computeDepthRange(info.minCorner, info.maxCorner);
+      info.minDepth = depthRange.first;
+      info.maxDepth = depthRange.second;
     };
 
-    for (int i = 0; i < totalBoxes; ++i) {
-      const BoxInfo& a = globalBoxes[static_cast<std::size_t>(i)];
-      for (int j = i + 1; j < totalBoxes; ++j) {
-        const BoxInfo& b = globalBoxes[static_cast<std::size_t>(j)];
+    std::vector<BoxInfo> boxes = globalBoxes;
 
-        for (int axis = 0; axis < 3; ++axis) {
-          const int axis1 = (axis + 1) % 3;
-          const int axis2 = (axis + 2) % 3;
-          const bool overlapAxis1 = overlaps(a.minCorner[axis1],
-                                             a.maxCorner[axis1],
-                                             b.minCorner[axis1],
-                                             b.maxCorner[axis1]);
-          const bool overlapAxis2 = overlaps(a.minCorner[axis2],
-                                             a.maxCorner[axis2],
-                                             b.minCorner[axis2],
-                                             b.maxCorner[axis2]);
-          if (!overlapAxis1 || !overlapAxis2) {
-            continue;
-          }
-
-          const float dirComponent = viewDir[axis];
-          constexpr float kDirectionTolerance = 1e-6f;
-
-          if (nearlyEqual(a.maxCorner[axis], b.minCorner[axis])) {
-            if (dirComponent > kDirectionTolerance) {
-              addEdge(j, i);
-            } else if (dirComponent < -kDirectionTolerance) {
-              addEdge(i, j);
-            } else {
-              const float depthA = a.minDepth;
-              const float depthB = b.minDepth;
-              if (depthA <= depthB) {
-                addEdge(j, i);
-              } else {
-                addEdge(i, j);
-              }
-            }
-          } else if (nearlyEqual(b.maxCorner[axis], a.minCorner[axis])) {
-            if (dirComponent > kDirectionTolerance) {
-              addEdge(i, j);
-            } else if (dirComponent < -kDirectionTolerance) {
-              addEdge(j, i);
-            } else {
-              const float depthA = a.minDepth;
-              const float depthB = b.minDepth;
-              if (depthA <= depthB) {
-                addEdge(i, j);
-              } else {
-                addEdge(j, i);
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (rank == 0) {
-      static int graphFileCounter = 0;
-      std::ostringstream filename;
-      filename << "visibility_graph_" << graphFileCounter++ << ".dot";
-      std::ofstream dotFile(filename.str());
-      if (dotFile) {
-        dotFile << "digraph VisibilityGraph {\n";
-        dotFile << "  rankdir=LR;\n";
-        dotFile << std::fixed << std::setprecision(6);
-        for (int idx = 0; idx < totalBoxes; ++idx) {
-          const BoxInfo& info = globalBoxes[static_cast<std::size_t>(idx)];
-          dotFile << "  box" << idx << " [label=\"box " << idx
-                  << "\\nrank " << info.ownerRank
-                  << "\\nminDepth " << info.minDepth
-                  << "\\nmaxDepth " << info.maxDepth << "\"];\n";
-        }
-        for (int from = 0; from < totalBoxes; ++from) {
-          for (int to : adjacency[static_cast<std::size_t>(from)]) {
-            dotFile << "  box" << from << " -> box" << to << ";\n";
-          }
-        }
-        dotFile << "}\n";
-        std::cout << "Wrote visibility graph to '" << filename.str() << "'"
-                  << std::endl;
-      } else {
-        std::cerr << "Failed to write visibility graph to '" << filename.str()
-                  << "'" << std::endl;
-      }
-    }
-
-    auto compareBoxes = [&globalBoxes](int lhs, int rhs) {
-      const BoxInfo& a = globalBoxes[static_cast<std::size_t>(lhs)];
-      const BoxInfo& b = globalBoxes[static_cast<std::size_t>(rhs)];
+    auto compareBoxes = [&](int lhs, int rhs,
+                            const std::vector<BoxInfo>& current) {
+      const BoxInfo& a = current[static_cast<std::size_t>(lhs)];
+      const BoxInfo& b = current[static_cast<std::size_t>(rhs)];
       const bool aFinite = std::isfinite(a.minDepth);
       const bool bFinite = std::isfinite(b.minDepth);
       if (aFinite != bFinite) {
@@ -1129,62 +1038,358 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
       return a.minDepth < b.minDepth;
     };
 
-    std::vector<int> ready;
-    ready.reserve(static_cast<std::size_t>(totalBoxes));
-    for (int boxIndex = 0; boxIndex < totalBoxes; ++boxIndex) {
-      if (indegree[static_cast<std::size_t>(boxIndex)] == 0) {
-        ready.push_back(boxIndex);
-      }
-    }
+    constexpr float kDirectionTolerance = 1e-6f;
 
-    std::vector<int> topoOrder;
-    topoOrder.reserve(static_cast<std::size_t>(totalBoxes));
+    auto rebuildAdjacency = [&](const std::vector<BoxInfo>& currentBoxes,
+                                std::vector<std::vector<int>>& adjacency,
+                                std::vector<int>& indegree) {
+      const int boxCount = static_cast<int>(currentBoxes.size());
+      adjacency.assign(static_cast<std::size_t>(boxCount), {});
+      indegree.assign(static_cast<std::size_t>(boxCount), 0);
 
-    auto sortReady = [&]() {
-      std::sort(ready.begin(), ready.end(), compareBoxes);
-    };
+      auto addEdge = [&](int from, int to) {
+        if (from == to) {
+          return;
+        }
+        auto& edges = adjacency[static_cast<std::size_t>(from)];
+        if (std::find(edges.begin(), edges.end(), to) == edges.end()) {
+          edges.push_back(to);
+          ++indegree[static_cast<std::size_t>(to)];
+        }
+      };
 
-    sortReady();
-    while (!ready.empty()) {
-      const int current = ready.front();
-      ready.erase(ready.begin());
-      topoOrder.push_back(current);
+      for (int i = 0; i < boxCount; ++i) {
+        const BoxInfo& a = currentBoxes[static_cast<std::size_t>(i)];
+        for (int j = i + 1; j < boxCount; ++j) {
+          const BoxInfo& b = currentBoxes[static_cast<std::size_t>(j)];
 
-      for (int next : adjacency[static_cast<std::size_t>(current)]) {
-        int& in = indegree[static_cast<std::size_t>(next)];
-        --in;
-        if (in == 0) {
-          ready.push_back(next);
+          for (int axis = 0; axis < 3; ++axis) {
+            const int axis1 = (axis + 1) % 3;
+            const int axis2 = (axis + 2) % 3;
+            const bool overlapAxis1 = overlaps(a.minCorner[axis1],
+                                               a.maxCorner[axis1],
+                                               b.minCorner[axis1],
+                                               b.maxCorner[axis1]);
+            const bool overlapAxis2 = overlaps(a.minCorner[axis2],
+                                               a.maxCorner[axis2],
+                                               b.minCorner[axis2],
+                                               b.maxCorner[axis2]);
+            if (!overlapAxis1 || !overlapAxis2) {
+              continue;
+            }
+
+            const float dirComponent = viewDir[axis];
+
+            if (nearlyEqual(a.maxCorner[axis], b.minCorner[axis])) {
+              if (dirComponent > kDirectionTolerance) {
+                addEdge(j, i);
+              } else if (dirComponent < -kDirectionTolerance) {
+                addEdge(i, j);
+              }
+            } else if (nearlyEqual(b.maxCorner[axis], a.minCorner[axis])) {
+              if (dirComponent > kDirectionTolerance) {
+                addEdge(i, j);
+              } else if (dirComponent < -kDirectionTolerance) {
+                addEdge(j, i);
+              }
+            }
+          }
         }
       }
+    };
+
+    auto exportGraph = [&](const std::vector<BoxInfo>& currentBoxes,
+                           const std::vector<std::vector<int>>& adjacency) {
+      if (rank != 0) {
+        return;
+      }
+      static int graphFileCounter = 0;
+      std::ostringstream filename;
+      filename << "visibility_graph_" << graphFileCounter++ << ".dot";
+      std::ofstream dotFile(filename.str());
+      if (!dotFile) {
+        std::cerr << "Failed to write visibility graph to '" << filename.str()
+                  << "'" << std::endl;
+        return;
+      }
+      dotFile << "digraph VisibilityGraph {\n";
+      dotFile << "  rankdir=LR;\n";
+      dotFile << std::fixed << std::setprecision(6);
+      const int boxCount = static_cast<int>(currentBoxes.size());
+      for (int idx = 0; idx < boxCount; ++idx) {
+        const BoxInfo& info = currentBoxes[static_cast<std::size_t>(idx)];
+        dotFile << "  box" << idx << " [label=\"box " << idx
+                << "\\nrank " << info.ownerRank
+                << "\\nminDepth " << info.minDepth
+                << "\\nmaxDepth " << info.maxDepth << "\"];\n";
+      }
+      for (std::size_t from = 0; from < adjacency.size(); ++from) {
+        for (int to : adjacency[from]) {
+          dotFile << "  box" << from << " -> box" << to << ";\n";
+        }
+      }
+      dotFile << "}\n";
+      std::cout << "Wrote visibility graph to '" << filename.str() << "'"
+                << std::endl;
+    };
+
+    struct TopoResult {
+      bool success = false;
+      std::vector<int> order;
+      std::vector<int> residualIndegree;
+    };
+
+    auto topoSortBoxes =
+        [&](const std::vector<std::vector<int>>& adjacency,
+            const std::vector<int>& indegreeInitial,
+            const std::vector<BoxInfo>& currentBoxes) -> TopoResult {
+      TopoResult result;
+      const int boxCount = static_cast<int>(currentBoxes.size());
+      std::vector<int> indegreeCopy = indegreeInitial;
+      std::vector<int> ready;
+      ready.reserve(static_cast<std::size_t>(boxCount));
+      for (int i = 0; i < boxCount; ++i) {
+        if (indegreeCopy[static_cast<std::size_t>(i)] == 0) {
+          ready.push_back(i);
+        }
+      }
+
+      auto sortReady = [&]() {
+        std::sort(
+            ready.begin(),
+            ready.end(),
+            [&](int lhs, int rhs) { return compareBoxes(lhs, rhs, currentBoxes); });
+      };
+
       sortReady();
-    }
+      while (!ready.empty()) {
+        const int current = ready.front();
+        ready.erase(ready.begin());
+        result.order.push_back(current);
 
-    if (static_cast<int>(topoOrder.size()) != totalBoxes) {
-      return {false, {}};
-    }
+        for (int next : adjacency[static_cast<std::size_t>(current)]) {
+          int& in = indegreeCopy[static_cast<std::size_t>(next)];
+          --in;
+          if (in == 0) {
+            ready.push_back(next);
+          }
+        }
+        sortReady();
+      }
 
-    std::vector<int> rankVisited(static_cast<std::size_t>(numProcs), 0);
-    std::vector<int> rankOrder;
-    rankOrder.reserve(static_cast<std::size_t>(numProcs));
-    for (int boxIndex : topoOrder) {
-      const int owner = globalBoxes[static_cast<std::size_t>(boxIndex)].ownerRank;
-      if (owner >= 0 &&
-          rankVisited[static_cast<std::size_t>(owner)] == 0) {
-        rankVisited[static_cast<std::size_t>(owner)] = 1;
-        rankOrder.push_back(owner);
+      result.residualIndegree = std::move(indegreeCopy);
+      result.success =
+          static_cast<int>(result.order.size()) == boxCount;
+      return result;
+    };
+
+    auto findCycle = [&](const std::vector<std::vector<int>>& adjacency,
+                         const std::vector<int>& residualIndegree)
+        -> std::vector<int> {
+      const int boxCount = static_cast<int>(adjacency.size());
+      std::vector<int> state(static_cast<std::size_t>(boxCount), 0);
+      std::vector<int> parent(static_cast<std::size_t>(boxCount), -1);
+      std::vector<int> cycle;
+
+      std::function<bool(int)> dfs = [&](int node) -> bool {
+        state[static_cast<std::size_t>(node)] = 1;
+        for (int next : adjacency[static_cast<std::size_t>(node)]) {
+          if (state[static_cast<std::size_t>(next)] == 0) {
+            parent[static_cast<std::size_t>(next)] = node;
+            if (dfs(next)) {
+              return true;
+            }
+          } else if (state[static_cast<std::size_t>(next)] == 1) {
+            cycle.clear();
+            cycle.push_back(next);
+            for (int cur = node; cur != next && cur != -1;
+                 cur = parent[static_cast<std::size_t>(cur)]) {
+              cycle.push_back(cur);
+            }
+            std::reverse(cycle.begin(), cycle.end());
+            return true;
+          }
+        }
+        state[static_cast<std::size_t>(node)] = 2;
+        return false;
+      };
+
+      for (int node = 0; node < boxCount; ++node) {
+        if (residualIndegree[static_cast<std::size_t>(node)] > 0 &&
+            state[static_cast<std::size_t>(node)] == 0) {
+          if (dfs(node)) {
+            break;
+          }
+        }
+      }
+      return cycle;
+    };
+
+    auto breakCycle = [&](const std::vector<int>& cycleNodes,
+                          std::vector<BoxInfo>& mutableBoxes) -> bool {
+      if (cycleNodes.size() < 2) {
+        return false;
+      }
+
+      int chosenAxis = 0;
+      float bestAlignment = std::fabs(viewDir[0]);
+      for (int axis = 1; axis < 3; ++axis) {
+        const float alignment = std::fabs(viewDir[axis]);
+        if (alignment > bestAlignment) {
+          bestAlignment = alignment;
+          chosenAxis = axis;
+        }
+      }
+
+      if (bestAlignment <= kDirectionTolerance) {
+        // Fallback: select the axis with the widest extent among the cycle.
+        float widestLength = -1.0f;
+        for (int axis = 0; axis < 3; ++axis) {
+          for (int index : cycleNodes) {
+            const BoxInfo& box = mutableBoxes[static_cast<std::size_t>(index)];
+            const float length = box.maxCorner[axis] - box.minCorner[axis];
+            if (length > widestLength) {
+              widestLength = length;
+              chosenAxis = axis;
+            }
+          }
+        }
+      }
+
+      const float dirComponent = viewDir[chosenAxis];
+      if (std::fabs(dirComponent) <= kDirectionTolerance) {
+        return false;
+      }
+
+      const float minLengthTolerance = 1e-6f;
+      int targetIndex = cycleNodes.front();
+      float targetLength = -1.0f;
+      for (int index : cycleNodes) {
+        const BoxInfo& box = mutableBoxes[static_cast<std::size_t>(index)];
+        const float length =
+            box.maxCorner[chosenAxis] - box.minCorner[chosenAxis];
+        if (length > targetLength && length > minLengthTolerance) {
+          targetLength = length;
+          targetIndex = index;
+        }
+      }
+
+      if (targetLength <= minLengthTolerance) {
+        return false;
+      }
+
+      const BoxInfo targetBox =
+          mutableBoxes[static_cast<std::size_t>(targetIndex)];
+      const float minVal = targetBox.minCorner[chosenAxis];
+      const float maxVal = targetBox.maxCorner[chosenAxis];
+      const float length = maxVal - minVal;
+      const float epsilon = std::max(1e-5f * length, 1e-6f);
+
+      std::vector<float> candidates;
+      for (int index : cycleNodes) {
+        if (index == targetIndex) {
+          continue;
+        }
+        const BoxInfo& other = mutableBoxes[static_cast<std::size_t>(index)];
+        const float otherMin = other.minCorner[chosenAxis];
+        const float otherMax = other.maxCorner[chosenAxis];
+        if (otherMin > minVal + epsilon && otherMin < maxVal - epsilon) {
+          candidates.push_back(otherMin);
+        }
+        if (otherMax > minVal + epsilon && otherMax < maxVal - epsilon) {
+          candidates.push_back(otherMax);
+        }
+      }
+
+      float split = 0.5f * (minVal + maxVal);
+      if (!candidates.empty()) {
+        if (dirComponent > 0.0f) {
+          split = *std::max_element(candidates.begin(), candidates.end());
+        } else {
+          split = *std::min_element(candidates.begin(), candidates.end());
+        }
+      }
+
+      if (split <= minVal + epsilon) {
+        split = minVal + epsilon;
+      }
+      if (split >= maxVal - epsilon) {
+        split = maxVal - epsilon;
+      }
+
+      if (!(split > minVal && split < maxVal)) {
+        return false;
+      }
+
+      BoxInfo nearBox = targetBox;
+      BoxInfo farBox = targetBox;
+      if (dirComponent > 0.0f) {
+        nearBox.maxCorner[chosenAxis] = split;
+        farBox.minCorner[chosenAxis] = split;
+      } else {
+        nearBox.minCorner[chosenAxis] = split;
+        farBox.maxCorner[chosenAxis] = split;
+      }
+
+      updateBoxDepth(nearBox);
+      updateBoxDepth(farBox);
+
+      mutableBoxes[static_cast<std::size_t>(targetIndex)] = nearBox;
+      mutableBoxes.push_back(farBox);
+
+      if (rank == 0) {
+        std::cout << "Split box owned by rank " << targetBox.ownerRank
+                  << " along axis " << chosenAxis << " at " << split
+                  << " to break visibility cycle." << std::endl;
+      }
+
+      return true;
+    };
+
+    const int maxIterations =
+        static_cast<int>(std::max<std::size_t>(globalBoxes.size(), 1)) * 8 + 32;
+    std::vector<std::vector<int>> adjacency;
+    std::vector<int> indegree;
+    for (int iteration = 0; iteration < maxIterations; ++iteration) {
+      rebuildAdjacency(boxes, adjacency, indegree);
+      exportGraph(boxes, adjacency);
+
+      const TopoResult topo =
+          topoSortBoxes(adjacency, indegree, boxes);
+      if (topo.success) {
+        std::vector<int> rankVisited(static_cast<std::size_t>(numProcs), 0);
+        std::vector<int> rankOrder;
+        rankOrder.reserve(static_cast<std::size_t>(numProcs));
+        for (int boxIndex : topo.order) {
+          const int owner =
+              boxes[static_cast<std::size_t>(boxIndex)].ownerRank;
+          if (owner >= 0 &&
+              rankVisited[static_cast<std::size_t>(owner)] == 0) {
+            rankVisited[static_cast<std::size_t>(owner)] = 1;
+            rankOrder.push_back(owner);
+          }
+        }
+        for (const DepthInfo& info : sortedDepth) {
+          const int owner = info.rank;
+          if (rankVisited[static_cast<std::size_t>(owner)] == 0) {
+            rankVisited[static_cast<std::size_t>(owner)] = 1;
+            rankOrder.push_back(owner);
+          }
+        }
+        return {true, std::move(rankOrder)};
+      }
+
+      auto cycleNodes = findCycle(adjacency, topo.residualIndegree);
+      if (cycleNodes.empty()) {
+        return {false, {}};
+      }
+
+      if (!breakCycle(cycleNodes, boxes)) {
+        return {false, {}};
       }
     }
 
-    for (const DepthInfo& info : sortedDepth) {
-      const int owner = info.rank;
-      if (rankVisited[static_cast<std::size_t>(owner)] == 0) {
-        rankVisited[static_cast<std::size_t>(owner)] = 1;
-        rankOrder.push_back(owner);
-      }
-    }
-
-    return {true, std::move(rankOrder)};
+    return {false, {}};
   };
 
   std::vector<int> rankOrder;
