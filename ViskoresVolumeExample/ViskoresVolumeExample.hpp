@@ -11,6 +11,7 @@
 
 #include <mpi.h>
 
+#include <string>
 #include <vector>
 
 #ifndef MINIGRAPHICS_ENABLE_VISKORES
@@ -29,9 +30,39 @@ class ViskoresVolumeExample {
   using VolumeBounds = minigraphics::volume::VolumeBounds;
   using CameraParameters = minigraphics::volume::CameraParameters;
 
+  struct RenderParameters {
+    int width = 512;
+    int height = 512;
+    int trials = 1;
+    int samplesPerAxis = 64;
+    float boxTransparency = 0.0f;
+    bool useVisibilityGraph = true;
+    unsigned int cameraSeed = 91021u;
+  };
+
+  struct SceneGeometry {
+    std::vector<VolumeBox> localBoxes;
+    VolumeBounds explicitBounds;
+    bool hasExplicitBounds = false;
+  };
+
+  /// \brief Render the provided scene geometry using the configured compositor.
+  ///
+  /// \param outputFilenameBase Base name used when saving rendered images.
+  /// \param parameters Rendering parameters such as resolution and sampling.
+  /// \param geometry Scene geometry containing per-rank volume boxes and
+  ///                 optional explicit volume bounds.
+  /// \return 0 on success, non-zero on failure.
+  int renderScene(const std::string& outputFilenameBase,
+                  const RenderParameters& parameters,
+                  const SceneGeometry& geometry);
+
  private:
   void initialize() const;
-  std::vector<VolumeBox> createRankSpecificBoxes(VolumeBounds& globalBounds) const;
+  SceneGeometry createRankSpecificGeometry() const;
+  VolumeBounds computeGlobalBounds(const std::vector<VolumeBox>& boxes,
+                                   bool hasExplicitBounds,
+                                   const VolumeBounds& explicitBounds) const;
   void paint(const std::vector<VolumeBox>& boxes,
              const VolumeBounds& bounds,
              int samplesPerAxis,

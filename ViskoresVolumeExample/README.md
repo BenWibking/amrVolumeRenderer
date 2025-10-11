@@ -29,10 +29,37 @@ mpirun -np 4 build/bin/ViskoresVolumeExample \
 - `--width` / `--height`: Framebuffer size in pixels (default: 512×512).
 - `--trials`: Number of render iterations for timing (default: 1).
 - `--samples`: Resolution of the structured volume along each axis (default: 64).
-- `--no-visibility-graph`: Disable the visibility-graph-based ordering (enabled by default).
-- `--yaml-output`: Write timing information to a YAML file.
+- `--box-transparency`: Per-box transparency factor in `[0, 1]` (default: 0).
+- `--visibility-graph` / `--no-visibility-graph`: Toggle visibility-graph ordering (enabled by default).
+- `--output`: Destination filename for the composited image (default: `viskores-volume-trial.ppm`).
 
-The application writes composited `.ppm` images named `viskores-volume-trial-<N>-ranks-<P>.ppm` on rank 0, where `<P>` is the number of MPI ranks.
+Images are written on rank 0. When more than one trial is requested, each filename receives a `-trial-<N>` suffix inserted before the extension.
+
+## Library Usage
+
+The rendering pipeline can be invoked programmatically. Provide a scene description (per-rank boxes plus optional explicit bounds), configure rendering parameters, and call `renderScene`:
+
+```cpp
+#include "ViskoresVolumeExample.hpp"
+
+int main(int argc, char** argv) {
+  MPI_Init(&argc, &argv);
+
+  ViskoresVolumeExample example;
+
+  ViskoresVolumeExample::SceneGeometry geometry;
+  geometry.localBoxes = /* rank-local boxes */;
+  // Optionally set geometry.explicitBounds and geometry.hasExplicitBounds.
+
+  ViskoresVolumeExample::RenderParameters params;
+  params.width = 800;
+  params.height = 600;
+
+  example.renderScene("custom-output.ppm", params, geometry);
+
+  MPI_Finalize();
+}
+```
 
 ## Implementation Notes
 

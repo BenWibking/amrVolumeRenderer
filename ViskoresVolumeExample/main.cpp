@@ -54,18 +54,15 @@ Vec3 componentMax(const Vec3& a, const Vec3& b) {
   return result;
 }
 
-struct Options {
-  int width = 512;
-  int height = 512;
-  int trials = 1;
-  int samplesPerAxis = 64;
-  float boxTransparency = 0.0f;
-  bool useVisibilityGraph = true;
+struct ParsedOptions {
+  ViskoresVolumeExample::RenderParameters parameters;
+  std::string outputFilename = "viskores-volume-trial.ppm";
+  bool exitEarly = false;
 };
 
 void printUsage() {
   std::cout << "Usage: ViskoresVolumeExample [--width W] [--height H] "
-               "[--trials N] [--samples S]\n"
+               "[--trials N] [--samples S] [--output FILE]\n"
             << "  --width W        Image width (default: 512)\n"
             << "  --height H       Image height (default: 512)\n"
             << "  --trials N       Number of render trials (default: 1)\n"
@@ -76,12 +73,12 @@ void printUsage() {
                "graph (default)\n"
             << "  --no-visibility-graph  Disable topological ordering using a "
                "visibility graph\n"
+            << "  --output FILE    Output filename (default: viskores-volume-trial.ppm)\n"
             << "  -h, --help       Show this help message\n";
 }
 
-Options parseOptions(int argc, char** argv, int rank, bool& exitEarly) {
-  Options options;
-  exitEarly = false;
+ParsedOptions parseOptions(int argc, char** argv, int rank) {
+  ParsedOptions parsed;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg(argv[i]);
@@ -93,42 +90,47 @@ Options parseOptions(int argc, char** argv, int rank, bool& exitEarly) {
     };
 
     if (arg == "--width") {
-      options.width = std::stoi(requireValue(arg));
-      if (options.width <= 0) {
+      parsed.parameters.width = std::stoi(requireValue(arg));
+      if (parsed.parameters.width <= 0) {
         throw std::runtime_error("image width must be positive");
       }
     } else if (arg == "--height") {
-      options.height = std::stoi(requireValue(arg));
-      if (options.height <= 0) {
+      parsed.parameters.height = std::stoi(requireValue(arg));
+      if (parsed.parameters.height <= 0) {
         throw std::runtime_error("image height must be positive");
       }
     } else if (arg == "--trials") {
-      options.trials = std::stoi(requireValue(arg));
-      if (options.trials <= 0) {
+      parsed.parameters.trials = std::stoi(requireValue(arg));
+      if (parsed.parameters.trials <= 0) {
         throw std::runtime_error("number of trials must be positive");
       }
     } else if (arg == "--samples") {
-      options.samplesPerAxis = std::stoi(requireValue(arg));
-      if (options.samplesPerAxis < 2) {
+      parsed.parameters.samplesPerAxis = std::stoi(requireValue(arg));
+      if (parsed.parameters.samplesPerAxis < 2) {
         throw std::runtime_error("samples per axis must be at least 2");
       }
     } else if (arg == "--box-transparency") {
-      options.boxTransparency = std::stof(requireValue(arg));
-      if (options.boxTransparency < 0.0f ||
-          options.boxTransparency > 1.0f) {
+      parsed.parameters.boxTransparency = std::stof(requireValue(arg));
+      if (parsed.parameters.boxTransparency < 0.0f ||
+          parsed.parameters.boxTransparency > 1.0f) {
         throw std::runtime_error(
             "box transparency must be between 0 and 1");
       }
     } else if (arg == "--visibility-graph") {
-      options.useVisibilityGraph = true;
+      parsed.parameters.useVisibilityGraph = true;
     } else if (arg == "--no-visibility-graph") {
-      options.useVisibilityGraph = false;
+      parsed.parameters.useVisibilityGraph = false;
+    } else if (arg == "--output") {
+      parsed.outputFilename = requireValue(arg);
+      if (parsed.outputFilename.empty()) {
+        throw std::runtime_error("output filename must not be empty");
+      }
     } else if (arg == "--help" || arg == "-h") {
       if (rank == 0) {
         printUsage();
       }
-      exitEarly = true;
-      return options;
+      parsed.exitEarly = true;
+      return parsed;
     } else {
       std::ostringstream message;
       message << "unknown option '" << arg << "'";
@@ -136,7 +138,22 @@ Options parseOptions(int argc, char** argv, int rank, bool& exitEarly) {
     }
   }
 
-  return options;
+  return parsed;
+}
+
+std::string buildTrialFilename(const std::string& base,
+                               int trialIndex,
+                               int totalTrials) {
+  if (totalTrials <= 1) {
+    return base;
+  }
+
+  const std::string suffix = "-trial-" + std::to_string(trialIndex);
+  const std::size_t dot = base.find_last_of('.');
+  if (dot == std::string::npos || dot == 0) {
+    return base + suffix;
+  }
+  return base.substr(0, dot) + suffix + base.substr(dot);
 }
 
 struct MpiGroupGuard {
@@ -149,8 +166,6 @@ struct MpiGroupGuard {
 
   MPI_Group group;
 };
-
-constexpr unsigned int kDefaultCameraSeed = 91021u;
 
 float computeBoxDepthHint(const VolumeBox& box,
                           const CameraParameters& camera) {
@@ -181,9 +196,8 @@ void ViskoresVolumeExample::initialize() const {
   }
 }
 
-std::vector<ViskoresVolumeExample::VolumeBox>
-ViskoresVolumeExample::createRankSpecificBoxes(
-    VolumeBounds& globalBounds) const {
+ViskoresVolumeExample::SceneGeometry
+ViskoresVolumeExample::createRankSpecificGeometry() const {
   constexpr int boxesX = 2;
   constexpr int boxesY = 2;
   constexpr int boxesZ = 2;
@@ -207,8 +221,8 @@ ViskoresVolumeExample::createRankSpecificBoxes(
   const int firstBoxIndex =
       boxesPerRank * rank + std::min(rank, remainder);
 
-  std::vector<VolumeBox> boxes;
-  boxes.reserve(std::max(localBoxCount, 0));
+  SceneGeometry scene;
+  scene.localBoxes.reserve(std::max(localBoxCount, 0));
 
   Vec3 localMin(std::numeric_limits<float>::max());
   Vec3 localMax(-std::numeric_limits<float>::max());
@@ -243,13 +257,13 @@ ViskoresVolumeExample::createRankSpecificBoxes(
                       (static_cast<float>(totalBoxes) + 1.0f);
     box.color = kPalette[static_cast<std::size_t>(boxIndex) % kPalette.size()];
 
-    boxes.push_back(box);
+    scene.localBoxes.push_back(box);
 
     localMin = componentMin(localMin, box.minCorner);
     localMax = componentMax(localMax, box.maxCorner);
   }
 
-  if (boxes.empty()) {
+  if (scene.localBoxes.empty()) {
     localMin = Vec3(std::numeric_limits<float>::max());
     localMax = Vec3(-std::numeric_limits<float>::max());
   }
@@ -285,17 +299,93 @@ ViskoresVolumeExample::createRankSpecificBoxes(
                  globalMaxArray[1],
                  globalMaxArray[2]);
 
+  const Vec3 padding(spacing * 0.35f);
   if (minCorner[0] > maxCorner[0] || minCorner[1] > maxCorner[1] ||
       minCorner[2] > maxCorner[2]) {
-    minCorner = Vec3(-1.0f);
-    maxCorner = Vec3(1.0f);
+    scene.explicitBounds.minCorner = Vec3(-1.0f) - padding;
+    scene.explicitBounds.maxCorner = Vec3(1.0f) + padding;
+  } else {
+    scene.explicitBounds.minCorner = minCorner - padding;
+    scene.explicitBounds.maxCorner = maxCorner + padding;
   }
 
-  const Vec3 padding(spacing * 0.35f);
-  globalBounds.minCorner = minCorner - padding;
-  globalBounds.maxCorner = maxCorner + padding;
+  scene.hasExplicitBounds = true;
+  return scene;
+}
 
-  return boxes;
+ViskoresVolumeExample::VolumeBounds ViskoresVolumeExample::computeGlobalBounds(
+    const std::vector<VolumeBox>& boxes,
+    bool hasExplicitBounds,
+    const VolumeBounds& explicitBounds) const {
+  if (hasExplicitBounds) {
+    return explicitBounds;
+  }
+
+  Vec3 localMin(std::numeric_limits<float>::max());
+  Vec3 localMax(-std::numeric_limits<float>::max());
+
+  for (const auto& box : boxes) {
+    localMin = componentMin(localMin, box.minCorner);
+    localMax = componentMax(localMax, box.maxCorner);
+  }
+
+  if (boxes.empty()) {
+    localMin = Vec3(std::numeric_limits<float>::max());
+    localMax = Vec3(-std::numeric_limits<float>::max());
+  }
+
+  std::array<float, 3> localMinArray = {localMin[0], localMin[1], localMin[2]};
+  std::array<float, 3> localMaxArray = {localMax[0], localMax[1], localMax[2]};
+  std::array<float, 3> globalMinArray = {
+      std::numeric_limits<float>::max(),
+      std::numeric_limits<float>::max(),
+      std::numeric_limits<float>::max()};
+  std::array<float, 3> globalMaxArray = {
+      -std::numeric_limits<float>::max(),
+      -std::numeric_limits<float>::max(),
+      -std::numeric_limits<float>::max()};
+
+  MPI_Allreduce(localMinArray.data(),
+                globalMinArray.data(),
+                3,
+                MPI_FLOAT,
+                MPI_MIN,
+                MPI_COMM_WORLD);
+  MPI_Allreduce(localMaxArray.data(),
+                globalMaxArray.data(),
+                3,
+                MPI_FLOAT,
+                MPI_MAX,
+                MPI_COMM_WORLD);
+
+  VolumeBounds bounds;
+  bounds.minCorner = Vec3(globalMinArray[0],
+                          globalMinArray[1],
+                          globalMinArray[2]);
+  bounds.maxCorner = Vec3(globalMaxArray[0],
+                          globalMaxArray[1],
+                          globalMaxArray[2]);
+
+  const bool invalidBounds =
+      bounds.minCorner[0] > bounds.maxCorner[0] ||
+      bounds.minCorner[1] > bounds.maxCorner[1] ||
+      bounds.minCorner[2] > bounds.maxCorner[2];
+
+  if (invalidBounds) {
+    bounds.minCorner = Vec3(-1.0f);
+    bounds.maxCorner = Vec3(1.0f);
+    return bounds;
+  }
+
+  const Vec3 extent = bounds.maxCorner - bounds.minCorner;
+  const float maxExtent =
+      viskores::Max(extent[0], viskores::Max(extent[1], extent[2]));
+  const float padding = (maxExtent > 0.0f) ? maxExtent * 0.05f : 0.5f;
+  const Vec3 paddingVec(padding);
+
+  bounds.minCorner -= paddingVec;
+  bounds.maxCorner += paddingVec;
+  return bounds;
 }
 
 void ViskoresVolumeExample::paint(
@@ -345,28 +435,31 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
                                      MPI_COMM_WORLD);
 }
 
-int ViskoresVolumeExample::run(int argc, char** argv) {
-  bool exitEarly = false;
-  ::Options options;
-
-  try {
-    options = parseOptions(argc, argv, rank, exitEarly);
-  } catch (const std::exception& error) {
-    if (rank == 0) {
-      std::cerr << "Error parsing options: " << error.what() << std::endl;
-      std::cerr << "Use --help to list available options." << std::endl;
-    }
-    return 1;
+int ViskoresVolumeExample::renderScene(
+    const std::string& outputFilenameBase,
+    const RenderParameters& parameters,
+    const SceneGeometry& geometry) {
+  if (parameters.width <= 0 || parameters.height <= 0) {
+    throw std::invalid_argument("image dimensions must be positive");
   }
-
-  if (exitEarly) {
-    return 0;
+  if (parameters.trials <= 0) {
+    throw std::invalid_argument("number of trials must be positive");
+  }
+  if (parameters.samplesPerAxis < 2) {
+    throw std::invalid_argument("samples per axis must be at least 2");
+  }
+  if (parameters.boxTransparency < 0.0f ||
+      parameters.boxTransparency > 1.0f) {
+    throw std::invalid_argument(
+        "box transparency must be between 0 and 1");
   }
 
   initialize();
 
-  VolumeBounds bounds;
-  std::vector<VolumeBox> boxes = createRankSpecificBoxes(bounds);
+  VolumeBounds bounds =
+      computeGlobalBounds(geometry.localBoxes,
+                          geometry.hasExplicitBounds,
+                          geometry.explicitBounds);
 
   Compositor* compositor = getCompositor();
   if (compositor == nullptr) {
@@ -381,18 +474,20 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
   MPI_Comm_group(MPI_COMM_WORLD, &groupGuard.group);
 
   const Vec3 center = 0.5f * (bounds.minCorner + bounds.maxCorner);
-  const Vec3 halfExtent =
-      0.5f * (bounds.maxCorner - bounds.minCorner);
-  const float boundingRadius = viskores::Magnitude(halfExtent);
+  const Vec3 halfExtent = 0.5f * (bounds.maxCorner - bounds.minCorner);
+  float boundingRadius = viskores::Magnitude(halfExtent);
+  if (boundingRadius <= 0.0f) {
+    boundingRadius = 1.0f;
+  }
 
-  for (int trial = 0; trial < options.trials; ++trial) {
-    const float aspect =
-        static_cast<float>(options.width) / static_cast<float>(options.height);
+  for (int trial = 0; trial < parameters.trials; ++trial) {
+    const float aspect = static_cast<float>(parameters.width) /
+                         static_cast<float>(parameters.height);
     const float fovY = viskores::Pif() * 0.25f;
     const float cameraDistance =
         boundingRadius / std::tan(fovY * 0.5f) + boundingRadius * 1.5f;
 
-    std::mt19937 trialRng(kDefaultCameraSeed +
+    std::mt19937 trialRng(parameters.cameraSeed +
                           static_cast<unsigned int>(trial));
     std::uniform_real_distribution<float> angleDistribution(
         0.0f, viskores::TwoPif());
@@ -413,35 +508,37 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
         farPlane};
 
     std::vector<std::unique_ptr<ImageRGBAFloatColorDepthSort>> localLayers;
-    localLayers.reserve(boxes.size());
+    localLayers.reserve(geometry.localBoxes.size());
     std::vector<float> depthHints;
-    depthHints.reserve(boxes.size());
+    depthHints.reserve(geometry.localBoxes.size());
 
     std::vector<VolumeBox> singleBox(1);
 
-    for (std::size_t boxIndex = 0; boxIndex < boxes.size(); ++boxIndex) {
-      singleBox[0] = boxes[boxIndex];
+    for (std::size_t boxIndex = 0; boxIndex < geometry.localBoxes.size();
+         ++boxIndex) {
+      singleBox[0] = geometry.localBoxes[boxIndex];
 
       auto layerImage =
-          std::make_unique<ImageRGBAFloatColorDepthSort>(options.width,
-                                                         options.height);
+          std::make_unique<ImageRGBAFloatColorDepthSort>(parameters.width,
+                                                         parameters.height);
       paint(singleBox,
             bounds,
-            options.samplesPerAxis,
-            options.boxTransparency,
+            parameters.samplesPerAxis,
+            parameters.boxTransparency,
             *layerImage,
             camera,
-            &boxes[boxIndex].color);
-      depthHints.push_back(computeBoxDepthHint(boxes[boxIndex], camera));
+            &geometry.localBoxes[boxIndex].color);
+      depthHints.push_back(computeBoxDepthHint(geometry.localBoxes[boxIndex],
+                                               camera));
       localLayers.push_back(std::move(layerImage));
     }
 
     auto prototype =
-        std::make_unique<ImageRGBAFloatColorDepthSort>(options.width,
-                                                       options.height);
+        std::make_unique<ImageRGBAFloatColorDepthSort>(parameters.width,
+                                                       parameters.height);
 
-    LayeredVolumeImage layeredImage(options.width,
-                                    options.height,
+    LayeredVolumeImage layeredImage(parameters.width,
+                                    parameters.height,
                                     std::move(localLayers),
                                     std::move(depthHints),
                                     std::move(prototype));
@@ -450,8 +547,8 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
         buildVisibilityOrderedGroup(camera,
                                     aspect,
                                     groupGuard.group,
-                                    options.useVisibilityGraph,
-                                    boxes);
+                                    parameters.useVisibilityGraph,
+                                    geometry.localBoxes);
 
     std::unique_ptr<Image> compositedImage =
         compositor->compose(&layeredImage, orderedGroup, MPI_COMM_WORLD);
@@ -482,16 +579,15 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
         std::cout << "Trial " << trial << ": composed " << pixels
                   << " pixels on rank 0" << std::endl;
 
-        std::ostringstream filename;
-        filename << "viskores-volume-trial-" << trial << "-ranks-" << numProcs
-                 << ".ppm";
-        if (SavePPM(*gatheredImage, filename.str())) {
+        const std::string trialFilename =
+            buildTrialFilename(outputFilenameBase, trial, parameters.trials);
+        if (SavePPM(*gatheredImage, trialFilename)) {
           std::cout << "Saved trial " << trial
-                    << " volume composited image to '" << filename.str()
+                    << " volume composited image to '" << trialFilename
                     << "'" << std::endl;
         } else {
           std::cerr << "Failed to save trial " << trial
-                    << " composited image to '" << filename.str() << "'"
+                    << " composited image to '" << trialFilename << "'"
                     << std::endl;
         }
       }
@@ -499,6 +595,29 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
   }
 
   return 0;
+}
+
+int ViskoresVolumeExample::run(int argc, char** argv) {
+  ParsedOptions options;
+
+  try {
+    options = parseOptions(argc, argv, rank);
+  } catch (const std::exception& error) {
+    if (rank == 0) {
+      std::cerr << "Error parsing options: " << error.what() << std::endl;
+      std::cerr << "Use --help to list available options." << std::endl;
+    }
+    return 1;
+  }
+
+  if (options.exitEarly) {
+    return 0;
+  }
+
+  SceneGeometry geometry = createRankSpecificGeometry();
+  return renderScene(options.outputFilename,
+                     options.parameters,
+                     geometry);
 }
 
 
