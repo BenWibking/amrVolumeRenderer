@@ -58,7 +58,9 @@ class ViskoresVolumeExample {
   Compositor* getCompositor();
   MPI_Group buildVisibilityOrderedGroup(const CameraParameters& camera,
                                         float aspect,
-                                        MPI_Group baseGroup) const;
+                                        MPI_Group baseGroup,
+                                        bool useVisibilityGraph,
+                                        const std::vector<VolumeBox>& localBoxes) const;
 
   int rank;
   int numProcs;

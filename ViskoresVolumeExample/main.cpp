@@ -8,8 +8,12 @@
 #include <stdexcept>
 #include <random>
 #include <sstream>
+#include <utility>
 #include <string>
 #include <vector>
+#include <numeric>
+#include <fstream>
+#include <iomanip>
 
 #include <viskores/Math.h>
 #include <viskores/Matrix.h>
@@ -94,6 +98,7 @@ struct Options {
   int trials = 1;
   int samplesPerAxis = 64;
   float boxTransparency = 0.0f;
+  bool useVisibilityGraph = false;
 };
 
 void printUsage() {
@@ -105,6 +110,8 @@ void printUsage() {
             << "  --samples S      Samples per axis for the volume (default: 64)\n"
             << "  --box-transparency T  Transparency factor per box in [0,1] "
                "(default: 0)\n"
+            << "  --visibility-graph  Enable topological ordering using a visibility "
+               "graph\n"
             << "  -h, --help       Show this help message\n";
 }
 
@@ -148,6 +155,8 @@ Options parseOptions(int argc, char** argv, int rank, bool& exitEarly) {
         throw std::runtime_error(
             "box transparency must be between 0 and 1");
       }
+    } else if (arg == "--visibility-graph") {
+      options.useVisibilityGraph = true;
     } else if (arg == "--help" || arg == "-h") {
       if (rank == 0) {
         printUsage();
@@ -732,7 +741,9 @@ Compositor* ViskoresVolumeExample::getCompositor() {
 MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
     const CameraParameters& camera,
     float aspect,
-    MPI_Group baseGroup) const {
+    MPI_Group baseGroup,
+    bool useVisibilityGraph,
+    const std::vector<VolumeBox>& localBoxes) const {
   const Matrix4x4 modelview =
       viskores::rendering::MatrixHelpers::ViewMatrix(camera.eye, camera.lookAt, camera.up);
   const Matrix4x4 projection =
@@ -769,8 +780,11 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
     int rank;
   };
 
-  std::vector<DepthInfo> depthOrder(static_cast<std::size_t>(numProcs));
+  std::vector<DepthInfo> depthByRank(static_cast<std::size_t>(numProcs));
   for (int proc = 0; proc < numProcs; ++proc) {
+    DepthInfo info{};
+    info.rank = proc;
+
     if (allHasData[proc]) {
       const std::size_t base = static_cast<std::size_t>(proc) * 6;
       const Vec3 boundsMin(allBounds[base + 0],
@@ -787,8 +801,10 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
                           (cornerIndex & 2) ? boundsMax[1] : boundsMin[1],
                           (cornerIndex & 4) ? boundsMax[2] : boundsMin[2]);
         const Vec4 homogeneousCorner(corner[0], corner[1], corner[2], 1.0f);
-        const Vec4 viewSpace = viskores::MatrixMultiply(modelview, homogeneousCorner);
-        const Vec4 clipSpace = viskores::MatrixMultiply(projection, viewSpace);
+        const Vec4 viewSpace =
+            viskores::MatrixMultiply(modelview, homogeneousCorner);
+        const Vec4 clipSpace =
+            viskores::MatrixMultiply(projection, viewSpace);
         if (clipSpace[3] != 0.0f) {
           const float normalizedDepth = clipSpace[2] / clipSpace[3];
           minDepth = std::min(minDepth, normalizedDepth);
@@ -800,31 +816,394 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
         minDepth = std::numeric_limits<float>::infinity();
         maxDepth = std::numeric_limits<float>::infinity();
       }
-      depthOrder[static_cast<std::size_t>(proc)] = {minDepth, maxDepth, proc};
+      info.minDepth = minDepth;
+      info.maxDepth = maxDepth;
     } else {
-      depthOrder[static_cast<std::size_t>(proc)] = {
-          std::numeric_limits<float>::infinity(),
-          std::numeric_limits<float>::infinity(),
-          proc};
+      info.minDepth = std::numeric_limits<float>::infinity();
+      info.maxDepth = std::numeric_limits<float>::infinity();
     }
+
+    depthByRank[static_cast<std::size_t>(proc)] = info;
   }
 
-  std::sort(depthOrder.begin(),
-            depthOrder.end(),
-            [](const DepthInfo& a, const DepthInfo& b) {
-              if (a.minDepth == b.minDepth) {
-                if (a.maxDepth == b.maxDepth) {
-                  return a.rank < b.rank;
-                }
-                return a.maxDepth < b.maxDepth;
-              }
-              return a.minDepth < b.minDepth;
-            });
+  auto depthCompare = [](const DepthInfo& a, const DepthInfo& b) {
+    const bool aFinite = std::isfinite(a.minDepth);
+    const bool bFinite = std::isfinite(b.minDepth);
+    if (aFinite != bFinite) {
+      return aFinite && !bFinite;
+    }
+    if (a.minDepth == b.minDepth) {
+      if (a.maxDepth == b.maxDepth) {
+        return a.rank < b.rank;
+      }
+      return a.maxDepth < b.maxDepth;
+    }
+    return a.minDepth < b.minDepth;
+  };
 
-  std::vector<int> rankOrder(static_cast<std::size_t>(numProcs));
-  for (int i = 0; i < numProcs; ++i) {
-    rankOrder[static_cast<std::size_t>(i)] =
-        depthOrder[static_cast<std::size_t>(i)].rank;
+  std::vector<DepthInfo> sortedDepth = depthByRank;
+  std::sort(sortedDepth.begin(), sortedDepth.end(), depthCompare);
+
+  auto fallbackOrder = [this, &sortedDepth]() {
+    std::vector<int> order(static_cast<std::size_t>(this->numProcs));
+    for (int i = 0; i < this->numProcs; ++i) {
+      order[static_cast<std::size_t>(i)] =
+          sortedDepth[static_cast<std::size_t>(i)].rank;
+    }
+    return order;
+  };
+
+  auto attemptVisibilityGraphOrdering =
+      [&]() -> std::pair<bool, std::vector<int>> {
+    const int localBoxCount =
+        static_cast<int>(localBoxes.size());
+    std::vector<int> allBoxCounts(static_cast<std::size_t>(numProcs), 0);
+    MPI_Allgather(&localBoxCount,
+                  1,
+                  MPI_INT,
+                  allBoxCounts.data(),
+                  1,
+                  MPI_INT,
+                  MPI_COMM_WORLD);
+
+    const int totalBoxes =
+        std::accumulate(allBoxCounts.begin(), allBoxCounts.end(), 0);
+    if (totalBoxes <= 0) {
+      return {true, fallbackOrder()};
+    }
+
+    std::vector<int> boxDispls(static_cast<std::size_t>(numProcs), 0);
+    for (int i = 1; i < numProcs; ++i) {
+      boxDispls[static_cast<std::size_t>(i)] =
+          boxDispls[static_cast<std::size_t>(i) - 1] +
+          allBoxCounts[static_cast<std::size_t>(i) - 1];
+    }
+
+    std::vector<float> localBoxBounds(
+        static_cast<std::size_t>(localBoxCount) * 6, 0.0f);
+    for (int i = 0; i < localBoxCount; ++i) {
+      const VolumeBox& box = localBoxes[static_cast<std::size_t>(i)];
+      const std::size_t base = static_cast<std::size_t>(i) * 6;
+      localBoxBounds[base + 0] = box.minCorner[0];
+      localBoxBounds[base + 1] = box.minCorner[1];
+      localBoxBounds[base + 2] = box.minCorner[2];
+      localBoxBounds[base + 3] = box.maxCorner[0];
+      localBoxBounds[base + 4] = box.maxCorner[1];
+      localBoxBounds[base + 5] = box.maxCorner[2];
+    }
+
+    std::vector<float> allBoxBounds(
+        static_cast<std::size_t>(totalBoxes) * 6, 0.0f);
+    std::vector<int> countsBounds(static_cast<std::size_t>(numProcs), 0);
+    std::vector<int> displsBounds(static_cast<std::size_t>(numProcs), 0);
+    for (int i = 0; i < numProcs; ++i) {
+      countsBounds[static_cast<std::size_t>(i)] =
+          allBoxCounts[static_cast<std::size_t>(i)] * 6;
+      displsBounds[static_cast<std::size_t>(i)] =
+          boxDispls[static_cast<std::size_t>(i)] * 6;
+    }
+
+    MPI_Allgatherv(localBoxBounds.data(),
+                   localBoxCount * 6,
+                   MPI_FLOAT,
+                   allBoxBounds.data(),
+                   countsBounds.data(),
+                   displsBounds.data(),
+                   MPI_FLOAT,
+                   MPI_COMM_WORLD);
+
+    std::vector<int> localOwners(static_cast<std::size_t>(localBoxCount),
+                                 this->rank);
+    std::vector<int> allOwners(static_cast<std::size_t>(totalBoxes), 0);
+    MPI_Allgatherv(localOwners.data(),
+                   localBoxCount,
+                   MPI_INT,
+                   allOwners.data(),
+                   allBoxCounts.data(),
+                   boxDispls.data(),
+                   MPI_INT,
+                   MPI_COMM_WORLD);
+
+    struct BoxInfo {
+      Vec3 minCorner;
+      Vec3 maxCorner;
+      int ownerRank = -1;
+      float minDepth = std::numeric_limits<float>::infinity();
+      float maxDepth = std::numeric_limits<float>::infinity();
+    };
+
+    std::vector<BoxInfo> globalBoxes(static_cast<std::size_t>(totalBoxes));
+
+    auto computeDepthRange = [&](const Vec3& minCorner,
+                                 const Vec3& maxCorner) {
+      float minDepth = std::numeric_limits<float>::infinity();
+      float maxDepth = -std::numeric_limits<float>::infinity();
+      for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
+        const Vec3 corner((cornerIndex & 1) ? maxCorner[0] : minCorner[0],
+                          (cornerIndex & 2) ? maxCorner[1] : minCorner[1],
+                          (cornerIndex & 4) ? maxCorner[2] : minCorner[2]);
+        const Vec4 homogeneousCorner(corner[0],
+                                     corner[1],
+                                     corner[2],
+                                     1.0f);
+        const Vec4 viewSpace =
+            viskores::MatrixMultiply(modelview, homogeneousCorner);
+        const Vec4 clipSpace =
+            viskores::MatrixMultiply(projection, viewSpace);
+        if (clipSpace[3] != 0.0f) {
+          const float normalizedDepth = clipSpace[2] / clipSpace[3];
+          minDepth = std::min(minDepth, normalizedDepth);
+          maxDepth = std::max(maxDepth, normalizedDepth);
+        }
+      }
+
+      if (!std::isfinite(minDepth) || !std::isfinite(maxDepth)) {
+        minDepth = std::numeric_limits<float>::infinity();
+        maxDepth = std::numeric_limits<float>::infinity();
+      }
+      return std::make_pair(minDepth, maxDepth);
+    };
+
+    for (int boxIndex = 0; boxIndex < totalBoxes; ++boxIndex) {
+      const std::size_t base = static_cast<std::size_t>(boxIndex) * 6;
+      BoxInfo info;
+      info.minCorner = Vec3(allBoxBounds[base + 0],
+                            allBoxBounds[base + 1],
+                            allBoxBounds[base + 2]);
+      info.maxCorner = Vec3(allBoxBounds[base + 3],
+                            allBoxBounds[base + 4],
+                            allBoxBounds[base + 5]);
+      info.ownerRank = allOwners[static_cast<std::size_t>(boxIndex)];
+      const auto depthRange =
+          computeDepthRange(info.minCorner, info.maxCorner);
+      info.minDepth = depthRange.first;
+      info.maxDepth = depthRange.second;
+      globalBoxes[static_cast<std::size_t>(boxIndex)] = info;
+    }
+
+    Vec3 viewDir = camera.lookAt - camera.eye;
+    const float viewDirMagnitude = viskores::Magnitude(viewDir);
+    if (viewDirMagnitude > 0.0f) {
+      viewDir = viewDir * (1.0f / viewDirMagnitude);
+    } else {
+      viewDir = Vec3(0.0f, 0.0f, -1.0f);
+    }
+
+    auto nearlyEqual = [](float a, float b) {
+      const float scale = std::max({1.0f, std::fabs(a), std::fabs(b)});
+      return std::fabs(a - b) <= 1e-5f * scale;
+    };
+
+    auto overlaps = [](float aMin, float aMax, float bMin, float bMax) {
+      const float overlapMin = std::max(aMin, bMin);
+      const float overlapMax = std::min(aMax, bMax);
+      const float scale = std::max(
+          {1.0f,
+           std::fabs(aMin),
+           std::fabs(aMax),
+           std::fabs(bMin),
+           std::fabs(bMax),
+           std::fabs(overlapMin),
+           std::fabs(overlapMax)});
+      return (overlapMax - overlapMin) > 1e-5f * scale;
+    };
+
+    std::vector<std::vector<int>> adjacency(
+        static_cast<std::size_t>(totalBoxes));
+    std::vector<int> indegree(static_cast<std::size_t>(totalBoxes), 0);
+
+    auto addEdge = [&](int from, int to) {
+      if (from == to) {
+        return;
+      }
+      auto& edges = adjacency[static_cast<std::size_t>(from)];
+      if (std::find(edges.begin(), edges.end(), to) == edges.end()) {
+        edges.push_back(to);
+        ++indegree[static_cast<std::size_t>(to)];
+      }
+    };
+
+    for (int i = 0; i < totalBoxes; ++i) {
+      const BoxInfo& a = globalBoxes[static_cast<std::size_t>(i)];
+      for (int j = i + 1; j < totalBoxes; ++j) {
+        const BoxInfo& b = globalBoxes[static_cast<std::size_t>(j)];
+
+        for (int axis = 0; axis < 3; ++axis) {
+          const int axis1 = (axis + 1) % 3;
+          const int axis2 = (axis + 2) % 3;
+          const bool overlapAxis1 = overlaps(a.minCorner[axis1],
+                                             a.maxCorner[axis1],
+                                             b.minCorner[axis1],
+                                             b.maxCorner[axis1]);
+          const bool overlapAxis2 = overlaps(a.minCorner[axis2],
+                                             a.maxCorner[axis2],
+                                             b.minCorner[axis2],
+                                             b.maxCorner[axis2]);
+          if (!overlapAxis1 || !overlapAxis2) {
+            continue;
+          }
+
+          const float dirComponent = viewDir[axis];
+          constexpr float kDirectionTolerance = 1e-6f;
+
+          if (nearlyEqual(a.maxCorner[axis], b.minCorner[axis])) {
+            if (dirComponent > kDirectionTolerance) {
+              addEdge(j, i);
+            } else if (dirComponent < -kDirectionTolerance) {
+              addEdge(i, j);
+            } else {
+              const float depthA = a.minDepth;
+              const float depthB = b.minDepth;
+              if (depthA <= depthB) {
+                addEdge(j, i);
+              } else {
+                addEdge(i, j);
+              }
+            }
+          } else if (nearlyEqual(b.maxCorner[axis], a.minCorner[axis])) {
+            if (dirComponent > kDirectionTolerance) {
+              addEdge(i, j);
+            } else if (dirComponent < -kDirectionTolerance) {
+              addEdge(j, i);
+            } else {
+              const float depthA = a.minDepth;
+              const float depthB = b.minDepth;
+              if (depthA <= depthB) {
+                addEdge(i, j);
+              } else {
+                addEdge(j, i);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (rank == 0) {
+      static int graphFileCounter = 0;
+      std::ostringstream filename;
+      filename << "visibility_graph_" << graphFileCounter++ << ".dot";
+      std::ofstream dotFile(filename.str());
+      if (dotFile) {
+        dotFile << "digraph VisibilityGraph {\n";
+        dotFile << "  rankdir=LR;\n";
+        dotFile << std::fixed << std::setprecision(6);
+        for (int idx = 0; idx < totalBoxes; ++idx) {
+          const BoxInfo& info = globalBoxes[static_cast<std::size_t>(idx)];
+          dotFile << "  box" << idx << " [label=\"box " << idx
+                  << "\\nrank " << info.ownerRank
+                  << "\\nminDepth " << info.minDepth
+                  << "\\nmaxDepth " << info.maxDepth << "\"];\n";
+        }
+        for (int from = 0; from < totalBoxes; ++from) {
+          for (int to : adjacency[static_cast<std::size_t>(from)]) {
+            dotFile << "  box" << from << " -> box" << to << ";\n";
+          }
+        }
+        dotFile << "}\n";
+        std::cout << "Wrote visibility graph to '" << filename.str() << "'"
+                  << std::endl;
+      } else {
+        std::cerr << "Failed to write visibility graph to '" << filename.str()
+                  << "'" << std::endl;
+      }
+    }
+
+    auto compareBoxes = [&globalBoxes](int lhs, int rhs) {
+      const BoxInfo& a = globalBoxes[static_cast<std::size_t>(lhs)];
+      const BoxInfo& b = globalBoxes[static_cast<std::size_t>(rhs)];
+      const bool aFinite = std::isfinite(a.minDepth);
+      const bool bFinite = std::isfinite(b.minDepth);
+      if (aFinite != bFinite) {
+        return aFinite && !bFinite;
+      }
+      if (a.minDepth == b.minDepth) {
+        if (a.maxDepth == b.maxDepth) {
+          if (a.ownerRank == b.ownerRank) {
+            return lhs < rhs;
+          }
+          return a.ownerRank < b.ownerRank;
+        }
+        return a.maxDepth < b.maxDepth;
+      }
+      return a.minDepth < b.minDepth;
+    };
+
+    std::vector<int> ready;
+    ready.reserve(static_cast<std::size_t>(totalBoxes));
+    for (int boxIndex = 0; boxIndex < totalBoxes; ++boxIndex) {
+      if (indegree[static_cast<std::size_t>(boxIndex)] == 0) {
+        ready.push_back(boxIndex);
+      }
+    }
+
+    std::vector<int> topoOrder;
+    topoOrder.reserve(static_cast<std::size_t>(totalBoxes));
+
+    auto sortReady = [&]() {
+      std::sort(ready.begin(), ready.end(), compareBoxes);
+    };
+
+    sortReady();
+    while (!ready.empty()) {
+      const int current = ready.front();
+      ready.erase(ready.begin());
+      topoOrder.push_back(current);
+
+      for (int next : adjacency[static_cast<std::size_t>(current)]) {
+        int& in = indegree[static_cast<std::size_t>(next)];
+        --in;
+        if (in == 0) {
+          ready.push_back(next);
+        }
+      }
+      sortReady();
+    }
+
+    if (static_cast<int>(topoOrder.size()) != totalBoxes) {
+      return {false, {}};
+    }
+
+    std::vector<int> rankVisited(static_cast<std::size_t>(numProcs), 0);
+    std::vector<int> rankOrder;
+    rankOrder.reserve(static_cast<std::size_t>(numProcs));
+    for (int boxIndex : topoOrder) {
+      const int owner = globalBoxes[static_cast<std::size_t>(boxIndex)].ownerRank;
+      if (owner >= 0 &&
+          rankVisited[static_cast<std::size_t>(owner)] == 0) {
+        rankVisited[static_cast<std::size_t>(owner)] = 1;
+        rankOrder.push_back(owner);
+      }
+    }
+
+    for (const DepthInfo& info : sortedDepth) {
+      const int owner = info.rank;
+      if (rankVisited[static_cast<std::size_t>(owner)] == 0) {
+        rankVisited[static_cast<std::size_t>(owner)] = 1;
+        rankOrder.push_back(owner);
+      }
+    }
+
+    return {true, std::move(rankOrder)};
+  };
+
+  std::vector<int> rankOrder;
+  if (useVisibilityGraph) {
+    auto result = attemptVisibilityGraphOrdering();
+    if (result.first) {
+      rankOrder = std::move(result.second);
+    } else {
+      static bool warnedGraphFailure = false;
+      if (!warnedGraphFailure && rank == 0) {
+        std::cerr << "Visibility graph ordering failed; "
+                     "falling back to depth sorting."
+                  << std::endl;
+      }
+      warnedGraphFailure = true;
+      rankOrder = fallbackOrder();
+    }
+  } else {
+    rankOrder = fallbackOrder();
   }
 
   MPI_Group orderedGroup = MPI_GROUP_NULL;
@@ -934,7 +1313,11 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
                                     std::move(prototype));
 
     MPI_Group orderedGroup =
-        buildVisibilityOrderedGroup(camera, aspect, groupGuard.group);
+        buildVisibilityOrderedGroup(camera,
+                                    aspect,
+                                    groupGuard.group,
+                                    options.useVisibilityGraph,
+                                    boxes);
 
     std::unique_ptr<Image> compositedImage =
         compositor->compose(&layeredImage, orderedGroup, MPI_COMM_WORLD);
