@@ -57,7 +57,21 @@ class ViskoresVolumeExample {
                   const RenderParameters& parameters,
                   const SceneGeometry& geometry);
 
+  /// \brief Render the provided scene geometry with an explicit camera.
+  ///
+  /// \param outputFilenameBase Base name used when saving rendered images.
+  /// \param parameters Rendering parameters such as resolution and sampling.
+  /// \param geometry Scene geometry containing per-rank volume boxes and
+  ///                 optional explicit volume bounds.
+  /// \param camera Camera parameters describing the view transform.
+  /// \return 0 on success, non-zero on failure.
+  int renderScene(const std::string& outputFilenameBase,
+                  const RenderParameters& parameters,
+                  const SceneGeometry& geometry,
+                  const CameraParameters& camera);
+
  private:
+  void validateRenderParameters(const RenderParameters& parameters) const;
   void initialize() const;
   SceneGeometry createRankSpecificGeometry() const;
   VolumeBounds computeGlobalBounds(const std::vector<VolumeBox>& boxes,
@@ -76,6 +90,14 @@ class ViskoresVolumeExample {
                                         MPI_Group baseGroup,
                                         bool useVisibilityGraph,
                                         const std::vector<VolumeBox>& localBoxes) const;
+  int renderSingleTrial(const std::string& outputFilename,
+                        const RenderParameters& parameters,
+                        const SceneGeometry& geometry,
+                        const VolumeBounds& bounds,
+                        Compositor* compositor,
+                        MPI_Group baseGroup,
+                        const CameraParameters& camera,
+                        int trialIndex);
 
   int rank;
   int numProcs;

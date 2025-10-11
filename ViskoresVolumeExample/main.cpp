@@ -189,6 +189,24 @@ ViskoresVolumeExample::ViskoresVolumeExample()
   MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
 }
 
+void ViskoresVolumeExample::validateRenderParameters(
+    const RenderParameters& parameters) const {
+  if (parameters.width <= 0 || parameters.height <= 0) {
+    throw std::invalid_argument("image dimensions must be positive");
+  }
+  if (parameters.trials <= 0) {
+    throw std::invalid_argument("number of trials must be positive");
+  }
+  if (parameters.samplesPerAxis < 2) {
+    throw std::invalid_argument("samples per axis must be at least 2");
+  }
+  if (parameters.boxTransparency < 0.0f ||
+      parameters.boxTransparency > 1.0f) {
+    throw std::invalid_argument(
+        "box transparency must be between 0 and 1");
+  }
+}
+
 void ViskoresVolumeExample::initialize() const {
   if (rank == 0) {
     std::cout << "ViskoresVolumeExample: Using Viskores volume mapper on "
@@ -439,21 +457,7 @@ int ViskoresVolumeExample::renderScene(
     const std::string& outputFilenameBase,
     const RenderParameters& parameters,
     const SceneGeometry& geometry) {
-  if (parameters.width <= 0 || parameters.height <= 0) {
-    throw std::invalid_argument("image dimensions must be positive");
-  }
-  if (parameters.trials <= 0) {
-    throw std::invalid_argument("number of trials must be positive");
-  }
-  if (parameters.samplesPerAxis < 2) {
-    throw std::invalid_argument("samples per axis must be at least 2");
-  }
-  if (parameters.boxTransparency < 0.0f ||
-      parameters.boxTransparency > 1.0f) {
-    throw std::invalid_argument(
-        "box transparency must be between 0 and 1");
-  }
-
+  validateRenderParameters(parameters);
   initialize();
 
   VolumeBounds bounds =
@@ -480,10 +484,9 @@ int ViskoresVolumeExample::renderScene(
     boundingRadius = 1.0f;
   }
 
+  const float fovY = viskores::Pif() * 0.25f;
+
   for (int trial = 0; trial < parameters.trials; ++trial) {
-    const float aspect = static_cast<float>(parameters.width) /
-                         static_cast<float>(parameters.height);
-    const float fovY = viskores::Pif() * 0.25f;
     const float cameraDistance =
         boundingRadius / std::tan(fovY * 0.5f) + boundingRadius * 1.5f;
 
@@ -507,88 +510,176 @@ int ViskoresVolumeExample::renderScene(
         nearPlane,
         farPlane};
 
-    std::vector<std::unique_ptr<ImageRGBAFloatColorDepthSort>> localLayers;
-    localLayers.reserve(geometry.localBoxes.size());
-    std::vector<float> depthHints;
-    depthHints.reserve(geometry.localBoxes.size());
-
-    std::vector<VolumeBox> singleBox(1);
-
-    for (std::size_t boxIndex = 0; boxIndex < geometry.localBoxes.size();
-         ++boxIndex) {
-      singleBox[0] = geometry.localBoxes[boxIndex];
-
-      auto layerImage =
-          std::make_unique<ImageRGBAFloatColorDepthSort>(parameters.width,
-                                                         parameters.height);
-      paint(singleBox,
-            bounds,
-            parameters.samplesPerAxis,
-            parameters.boxTransparency,
-            *layerImage,
-            camera,
-            &geometry.localBoxes[boxIndex].color);
-      depthHints.push_back(computeBoxDepthHint(geometry.localBoxes[boxIndex],
-                                               camera));
-      localLayers.push_back(std::move(layerImage));
+    const std::string trialFilename =
+        buildTrialFilename(outputFilenameBase, trial, parameters.trials);
+    const int result = renderSingleTrial(trialFilename,
+                                         parameters,
+                                         geometry,
+                                         bounds,
+                                         compositor,
+                                         groupGuard.group,
+                                         camera,
+                                         trial);
+    if (result != 0) {
+      return result;
     }
+  }
 
-    auto prototype =
+  return 0;
+}
+
+int ViskoresVolumeExample::renderScene(
+    const std::string& outputFilenameBase,
+    const RenderParameters& parameters,
+    const SceneGeometry& geometry,
+    const CameraParameters& camera) {
+  validateRenderParameters(parameters);
+  initialize();
+
+  VolumeBounds bounds =
+      computeGlobalBounds(geometry.localBoxes,
+                          geometry.hasExplicitBounds,
+                          geometry.explicitBounds);
+
+  Compositor* compositor = getCompositor();
+  if (compositor == nullptr) {
+    if (rank == 0) {
+      std::cerr << "No compositor available for the volume example."
+                << std::endl;
+    }
+    return 1;
+  }
+
+  MpiGroupGuard groupGuard;
+  MPI_Comm_group(MPI_COMM_WORLD, &groupGuard.group);
+
+  for (int trial = 0; trial < parameters.trials; ++trial) {
+    const std::string trialFilename =
+        buildTrialFilename(outputFilenameBase, trial, parameters.trials);
+    const int result = renderSingleTrial(trialFilename,
+                                         parameters,
+                                         geometry,
+                                         bounds,
+                                         compositor,
+                                         groupGuard.group,
+                                         camera,
+                                         trial);
+    if (result != 0) {
+      return result;
+    }
+  }
+
+  return 0;
+}
+
+int ViskoresVolumeExample::renderSingleTrial(
+    const std::string& outputFilename,
+    const RenderParameters& parameters,
+    const SceneGeometry& geometry,
+    const VolumeBounds& bounds,
+    Compositor* compositor,
+    MPI_Group baseGroup,
+    const CameraParameters& camera,
+    int trialIndex) {
+  const float aspect = static_cast<float>(parameters.width) /
+                       static_cast<float>(parameters.height);
+
+  std::vector<std::unique_ptr<ImageRGBAFloatColorDepthSort>> localLayers;
+  localLayers.reserve(geometry.localBoxes.size());
+  std::vector<float> depthHints;
+  depthHints.reserve(geometry.localBoxes.size());
+
+  std::vector<VolumeBox> singleBox(1);
+
+  for (std::size_t boxIndex = 0; boxIndex < geometry.localBoxes.size();
+       ++boxIndex) {
+    singleBox[0] = geometry.localBoxes[boxIndex];
+
+    auto layerImage =
         std::make_unique<ImageRGBAFloatColorDepthSort>(parameters.width,
                                                        parameters.height);
+    paint(singleBox,
+          bounds,
+          parameters.samplesPerAxis,
+          parameters.boxTransparency,
+          *layerImage,
+          camera,
+          &geometry.localBoxes[boxIndex].color);
+    depthHints.push_back(computeBoxDepthHint(geometry.localBoxes[boxIndex],
+                                             camera));
+    localLayers.push_back(std::move(layerImage));
+  }
 
-    LayeredVolumeImage layeredImage(parameters.width,
-                                    parameters.height,
-                                    std::move(localLayers),
-                                    std::move(depthHints),
-                                    std::move(prototype));
+  auto prototype =
+      std::make_unique<ImageRGBAFloatColorDepthSort>(parameters.width,
+                                                     parameters.height);
 
-    MPI_Group orderedGroup =
-        buildVisibilityOrderedGroup(camera,
-                                    aspect,
-                                    groupGuard.group,
-                                    parameters.useVisibilityGraph,
-                                    geometry.localBoxes);
+  LayeredVolumeImage layeredImage(parameters.width,
+                                  parameters.height,
+                                  std::move(localLayers),
+                                  std::move(depthHints),
+                                  std::move(prototype));
 
-    std::unique_ptr<Image> compositedImage =
-        compositor->compose(&layeredImage, orderedGroup, MPI_COMM_WORLD);
+  MPI_Group orderedGroup =
+      buildVisibilityOrderedGroup(camera,
+                                  aspect,
+                                  baseGroup,
+                                  parameters.useVisibilityGraph,
+                                  geometry.localBoxes);
 
-    MPI_Group_free(&orderedGroup);
+  std::unique_ptr<Image> compositedImage =
+      compositor->compose(&layeredImage, orderedGroup, MPI_COMM_WORLD);
 
-    if (compositedImage) {
-      std::unique_ptr<ImageFull> fullImage;
-      if (auto asFull = dynamic_cast<ImageFull*>(compositedImage.get())) {
-        fullImage.reset(asFull);
-        compositedImage.release();
-      } else if (auto asSparse =
-                     dynamic_cast<ImageSparse*>(compositedImage.get())) {
-        fullImage = asSparse->uncompress();
+  MPI_Group_free(&orderedGroup);
+
+  if (compositedImage) {
+    std::unique_ptr<ImageFull> fullImage;
+    if (auto asFull = dynamic_cast<ImageFull*>(compositedImage.get())) {
+      fullImage.reset(asFull);
+      compositedImage.release();
+    } else if (auto asSparse =
+                   dynamic_cast<ImageSparse*>(compositedImage.get())) {
+      fullImage = asSparse->uncompress();
+    } else {
+      if (rank == 0) {
+        std::cerr << "Unsupported image type returned by compositor."
+                  << std::endl;
+      }
+      MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    std::unique_ptr<ImageFull> gatheredImage =
+        fullImage->Gather(0, MPI_COMM_WORLD);
+
+    if (rank == 0 && gatheredImage) {
+      const int pixels = gatheredImage->getNumberOfPixels();
+      const bool hasTrialInfo = trialIndex >= 0;
+      if (hasTrialInfo) {
+        std::cout << "Trial " << trialIndex << ": composed " << pixels
+                  << " pixels on rank 0" << std::endl;
       } else {
-        if (rank == 0) {
-          std::cerr << "Unsupported image type returned by compositor."
-                    << std::endl;
-        }
-        MPI_Abort(MPI_COMM_WORLD, 1);
+        std::cout << "Render: composed " << pixels
+                  << " pixels on rank 0" << std::endl;
       }
 
-      std::unique_ptr<ImageFull> gatheredImage =
-          fullImage->Gather(0, MPI_COMM_WORLD);
-
-      if (rank == 0 && gatheredImage) {
-        const int pixels = gatheredImage->getNumberOfPixels();
-        std::cout << "Trial " << trial << ": composed " << pixels
-                  << " pixels on rank 0" << std::endl;
-
-        const std::string trialFilename =
-            buildTrialFilename(outputFilenameBase, trial, parameters.trials);
-        if (SavePPM(*gatheredImage, trialFilename)) {
-          std::cout << "Saved trial " << trial
-                    << " volume composited image to '" << trialFilename
+      const bool saved = SavePPM(*gatheredImage, outputFilename);
+      if (hasTrialInfo) {
+        if (saved) {
+          std::cout << "Saved trial " << trialIndex
+                    << " volume composited image to '" << outputFilename
                     << "'" << std::endl;
         } else {
-          std::cerr << "Failed to save trial " << trial
-                    << " composited image to '" << trialFilename << "'"
+          std::cerr << "Failed to save trial " << trialIndex
+                    << " composited image to '" << outputFilename << "'"
                     << std::endl;
+        }
+      } else {
+        if (saved) {
+          std::cout << "Saved volume composited image to '"
+                    << outputFilename << "'" << std::endl;
+        } else {
+          std::cerr << "Failed to save composited image to '"
+                    << outputFilename << "'" << std::endl;
         }
       }
     }

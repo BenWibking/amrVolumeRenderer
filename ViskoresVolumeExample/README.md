@@ -55,11 +55,22 @@ int main(int argc, char** argv) {
   params.width = 800;
   params.height = 600;
 
-  example.renderScene("custom-output.ppm", params, geometry);
+  ViskoresVolumeExample::CameraParameters camera;
+  camera.eye = {0.0f, 0.5f, 3.0f};
+  camera.lookAt = {0.0f, 0.0f, 0.0f};
+  camera.up = {0.0f, 1.0f, 0.0f};
+  camera.fovYDegrees = 45.0f;
+  camera.nearPlane = 0.1f;
+  camera.farPlane = 20.0f;
+
+  example.renderScene("custom-output.ppm", params, geometry, camera);
 
   MPI_Finalize();
 }
 ```
+
+Omitting the camera argument keeps the previous behaviour, allowing the example
+to generate an orbiting view for each trial automatically.
 
 ## Implementation Notes
 
