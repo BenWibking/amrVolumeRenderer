@@ -65,10 +65,6 @@ class ViskoresVolumeExample {
   int rank;
   int numProcs;
 
-  mutable viskores::Vec3f_32 localCentroid;
-  mutable viskores::Vec3f_32 localBoundsMin;
-  mutable viskores::Vec3f_32 localBoundsMax;
-  mutable bool hasLocalData;
 };
 
 #endif  // VISKORES_VOLUME_EXAMPLE_HPP

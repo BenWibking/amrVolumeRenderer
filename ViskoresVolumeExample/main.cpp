@@ -563,11 +563,7 @@ void VolumePainterViskores::paint(
 
 ViskoresVolumeExample::ViskoresVolumeExample()
     : rank(0),
-      numProcs(1),
-      localCentroid(0.0f),
-      localBoundsMin(0.0f),
-      localBoundsMax(0.0f),
-      hasLocalData(false) {
+      numProcs(1) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
 }
@@ -693,18 +689,6 @@ ViskoresVolumeExample::createRankSpecificBoxes(
   globalBounds.minCorner = minCorner - padding;
   globalBounds.maxCorner = maxCorner + padding;
 
-  if (!boxes.empty()) {
-    localCentroid = 0.5f * (localMin + localMax);
-    localBoundsMin = localMin;
-    localBoundsMax = localMax;
-    hasLocalData = true;
-  } else {
-    localCentroid = Vec3(0.0f);
-    localBoundsMin = Vec3(0.0f);
-    localBoundsMax = Vec3(0.0f);
-    hasLocalData = false;
-  }
-
   return boxes;
 }
 
@@ -750,109 +734,8 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
   const Matrix4x4 projection =
       makePerspectiveMatrix(camera.fovYDegrees, aspect, camera.nearPlane, camera.farPlane);
 
-  int localHasDataFlag = hasLocalData ? 1 : 0;
-  std::vector<int> allHasData(numProcs, 0);
-  MPI_Allgather(&localHasDataFlag,
-                1,
-                MPI_INT,
-                allHasData.data(),
-                1,
-                MPI_INT,
-                MPI_COMM_WORLD);
-
-  std::array<float, 6> localBoundsArray = {localBoundsMin[0],
-                                           localBoundsMin[1],
-                                           localBoundsMin[2],
-                                           localBoundsMax[0],
-                                           localBoundsMax[1],
-                                           localBoundsMax[2]};
-  std::vector<float> allBounds(static_cast<std::size_t>(numProcs) * 6, 0.0f);
-  MPI_Allgather(localBoundsArray.data(),
-                6,
-                MPI_FLOAT,
-                allBounds.data(),
-                6,
-                MPI_FLOAT,
-                MPI_COMM_WORLD);
-
-  struct DepthInfo {
-    float minDepth;
-    float maxDepth;
-    int rank;
-  };
-
-  std::vector<DepthInfo> depthByRank(static_cast<std::size_t>(numProcs));
-  for (int proc = 0; proc < numProcs; ++proc) {
-    DepthInfo info{};
-    info.rank = proc;
-
-    if (allHasData[proc]) {
-      const std::size_t base = static_cast<std::size_t>(proc) * 6;
-      const Vec3 boundsMin(allBounds[base + 0],
-                           allBounds[base + 1],
-                           allBounds[base + 2]);
-      const Vec3 boundsMax(allBounds[base + 3],
-                           allBounds[base + 4],
-                           allBounds[base + 5]);
-
-      float minDepth = std::numeric_limits<float>::infinity();
-      float maxDepth = -std::numeric_limits<float>::infinity();
-      for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
-        const Vec3 corner((cornerIndex & 1) ? boundsMax[0] : boundsMin[0],
-                          (cornerIndex & 2) ? boundsMax[1] : boundsMin[1],
-                          (cornerIndex & 4) ? boundsMax[2] : boundsMin[2]);
-        const Vec4 homogeneousCorner(corner[0], corner[1], corner[2], 1.0f);
-        const Vec4 viewSpace =
-            viskores::MatrixMultiply(modelview, homogeneousCorner);
-        const Vec4 clipSpace =
-            viskores::MatrixMultiply(projection, viewSpace);
-        if (clipSpace[3] != 0.0f) {
-          const float normalizedDepth = clipSpace[2] / clipSpace[3];
-          minDepth = std::min(minDepth, normalizedDepth);
-          maxDepth = std::max(maxDepth, normalizedDepth);
-        }
-      }
-
-      if (!std::isfinite(minDepth) || !std::isfinite(maxDepth)) {
-        minDepth = std::numeric_limits<float>::infinity();
-        maxDepth = std::numeric_limits<float>::infinity();
-      }
-      info.minDepth = minDepth;
-      info.maxDepth = maxDepth;
-    } else {
-      info.minDepth = std::numeric_limits<float>::infinity();
-      info.maxDepth = std::numeric_limits<float>::infinity();
-    }
-
-    depthByRank[static_cast<std::size_t>(proc)] = info;
-  }
-
-  auto depthCompare = [](const DepthInfo& a, const DepthInfo& b) {
-    const bool aFinite = std::isfinite(a.minDepth);
-    const bool bFinite = std::isfinite(b.minDepth);
-    if (aFinite != bFinite) {
-      return aFinite && !bFinite;
-    }
-    if (a.minDepth == b.minDepth) {
-      if (a.maxDepth == b.maxDepth) {
-        return a.rank < b.rank;
-      }
-      return a.maxDepth < b.maxDepth;
-    }
-    return a.minDepth < b.minDepth;
-  };
-
-  std::vector<DepthInfo> sortedDepth = depthByRank;
-  std::sort(sortedDepth.begin(), sortedDepth.end(), depthCompare);
-
-  auto fallbackOrder = [this, &sortedDepth]() {
-    std::vector<int> order(static_cast<std::size_t>(this->numProcs));
-    for (int i = 0; i < this->numProcs; ++i) {
-      order[static_cast<std::size_t>(i)] =
-          sortedDepth[static_cast<std::size_t>(i)].rank;
-    }
-    return order;
-  };
+  std::vector<int> defaultOrder(static_cast<std::size_t>(numProcs));
+  std::iota(defaultOrder.begin(), defaultOrder.end(), 0);
 
   auto attemptVisibilityGraphOrdering =
       [&]() -> std::pair<bool, std::vector<int>> {
@@ -870,7 +753,7 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
     const int totalBoxes =
         std::accumulate(allBoxCounts.begin(), allBoxCounts.end(), 0);
     if (totalBoxes <= 0) {
-      return {true, fallbackOrder()};
+      return {true, defaultOrder};
     }
 
     std::vector<int> boxDispls(static_cast<std::size_t>(numProcs), 0);
@@ -1369,8 +1252,7 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
             rankOrder.push_back(owner);
           }
         }
-        for (const DepthInfo& info : sortedDepth) {
-          const int owner = info.rank;
+        for (int owner : defaultOrder) {
           if (rankVisited[static_cast<std::size_t>(owner)] == 0) {
             rankVisited[static_cast<std::size_t>(owner)] = 1;
             rankOrder.push_back(owner);
@@ -1401,14 +1283,14 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
       static bool warnedGraphFailure = false;
       if (!warnedGraphFailure && rank == 0) {
         std::cerr << "Visibility graph ordering failed; "
-                     "falling back to depth sorting."
+                     "falling back to default MPI rank order."
                   << std::endl;
       }
       warnedGraphFailure = true;
-      rankOrder = fallbackOrder();
+      rankOrder = defaultOrder;
     }
   } else {
-    rankOrder = fallbackOrder();
+    rankOrder = defaultOrder;
   }
 
   MPI_Group orderedGroup = MPI_GROUP_NULL;
