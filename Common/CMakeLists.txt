@@ -20,6 +20,7 @@ set(srcs
   ImageRGBAUByteColorOnly.cpp
   ImageRGBFloatColorDepth.cpp
   ImageSparse.cpp
+  LayeredVolumeImage.cpp
   SavePPM.cpp
   )
 
@@ -37,9 +38,13 @@ set(headers
   ImageRGBAUByteColorOnly.hpp
   ImageRGBFloatColorDepth.hpp
   LayeredImageInterface.hpp
+  LayeredVolumeImage.hpp
   ImageSparse.hpp
   ImageSparseColorDepth.hpp
   ImageSparseColorOnly.hpp
+  VolumePainterViskores.hpp
+  VolumeTypes.hpp
+  VisibilityOrdering.hpp
   SavePPM.hpp
   Viewport.hpp
   )

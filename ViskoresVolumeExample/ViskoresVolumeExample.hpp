@@ -5,6 +5,7 @@
 
 #include <Common/Compositor.hpp>
 #include <Common/ImageFull.hpp>
+#include <Common/VolumeTypes.hpp>
 
 #include <viskores/Types.h>
 
@@ -24,26 +25,9 @@ class ViskoresVolumeExample {
   /// \brief Execute the miniapp entry point.
   int run(int argc, char** argv);
 
-  struct VolumeBox {
-    viskores::Vec3f_32 minCorner;
-    viskores::Vec3f_32 maxCorner;
-    float scalarValue;
-    viskores::Vec3f_32 color;
-  };
-
-  struct VolumeBounds {
-    viskores::Vec3f_32 minCorner;
-    viskores::Vec3f_32 maxCorner;
-  };
-
-  struct CameraParameters {
-    viskores::Vec3f_32 eye;
-    viskores::Vec3f_32 lookAt;
-    viskores::Vec3f_32 up;
-    float fovYDegrees;
-    float nearPlane;
-    float farPlane;
-  };
+  using VolumeBox = minigraphics::volume::VolumeBox;
+  using VolumeBounds = minigraphics::volume::VolumeBounds;
+  using CameraParameters = minigraphics::volume::CameraParameters;
 
  private:
   void initialize() const;

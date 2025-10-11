@@ -31,6 +31,8 @@ if(Viskores_FOUND)
   miniGraphics_executable(ViskoresVolumeExample
     SOURCES
       main.cpp
+      ../Common/VolumePainterViskores.cpp
+      ../Common/VisibilityOrdering.cpp
       ../DirectSend/Base/DirectSendBase.cpp
     HEADERS
       ViskoresVolumeExample.hpp
