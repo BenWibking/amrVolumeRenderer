@@ -483,7 +483,8 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
                   << " pixels on rank 0" << std::endl;
 
         std::ostringstream filename;
-        filename << "viskores-volume-trial-" << trial << ".ppm";
+        filename << "viskores-volume-trial-" << trial << "-ranks-" << numProcs
+                 << ".ppm";
         if (SavePPM(*gatheredImage, filename.str())) {
           std::cout << "Saved trial " << trial
                     << " volume composited image to '" << filename.str()

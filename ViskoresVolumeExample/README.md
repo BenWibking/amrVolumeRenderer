@@ -32,7 +32,7 @@ mpirun -np 4 build/bin/ViskoresVolumeExample \
 - `--no-visibility-graph`: Disable the visibility-graph-based ordering (enabled by default).
 - `--yaml-output`: Write timing information to a YAML file.
 
-The application writes composited `.ppm` images named `viskores-volume-trial-<N>.ppm` on rank 0.
+The application writes composited `.ppm` images named `viskores-volume-trial-<N>-ranks-<P>.ppm` on rank 0, where `<P>` is the number of MPI ranks.
 
 ## Implementation Notes
 
