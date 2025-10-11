@@ -10,8 +10,6 @@
 
 #include <stdexcept>
 
-Timer::Timer(YamlWriter& _yaml) : yaml(_yaml), description("") {}
-
 Timer::Timer(YamlWriter& _yaml, const std::string& _description)
     : yaml(_yaml), description("") {
   this->start(_description);

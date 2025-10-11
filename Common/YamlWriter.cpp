@@ -82,10 +82,3 @@ void YamlWriter::StartListItem() {
         "Tried to start a list in the middle of a yaml block.");
   }
 }
-
-void YamlWriter::AddListValue(const std::string& value) {
-  this->StartListItem();
-  this->WriteIndent();
-  this->OutputStream << value << std::endl;
-  this->AtBlockStart = false;
-}

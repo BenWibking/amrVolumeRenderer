@@ -22,18 +22,12 @@
 /// Calling this function as the implementation of your main makes a consistent
 /// interface across all mini apps.
 ///
-/// The MainLoop function can also optionally take an array or vector of
-/// option parser options. These will be appended to the standard options
-/// provided.
+/// The MainLoop function can also optionally take a vector of option parser
+/// options. These will be appended to the standard options provided.
 ///
 /// The return value is the code that should be returned from the main
 /// function.
 ///
-int MainLoop(int argc,
-             char* argv[],
-             Compositor* compositor,
-             const option::Descriptor* compositorOptions = nullptr,
-             const char* appName = MINIGRAPHICS_APP_NAME);
 int MainLoop(int argc,
              char* argv[],
              Compositor* compositor,

@@ -20,15 +20,6 @@ class Timer {
   Timer() = delete;
   Timer(const Timer&) = delete;
 
-  /// \brief Construct a timer with the given yaml writer.
-  ///
-  /// Note that a reference to the YamlWriter object is recorded, so should
-  /// remain alive throughout the life of this timer (and it would be best if
-  /// blocks were not started or ended). For this reason, it is best to
-  /// constraing the life of a timer.
-  ///
-  Timer(YamlWriter& _yaml);
-
   /// \brief Construct a timer with the given yaml writer and start timing.
   ///
   /// The given description is used as the key when recording the timing

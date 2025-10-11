@@ -54,10 +54,6 @@ class YamlWriter {
   ///
   void StartListItem();
 
-  /// Add a list item that is just a single value.
-  ///
-  void AddListValue(const std::string& value);
-
   /// Add a key/value pair for a dictionary entry.
   ///
   template <typename T>

@@ -654,24 +654,6 @@ static void run(RunOptions& runOptions,
 int MainLoop(int argc,
              char* argv[],
              Compositor* compositor,
-             const option::Descriptor* compositorOptions,
-             const char* appName) {
-  std::vector<option::Descriptor> compositorOptionsVector;
-
-  if (compositorOptions != nullptr) {
-    for (const option::Descriptor* compositorOptionsItem = compositorOptions;
-         compositorOptionsItem->shortopt != NULL;
-         compositorOptionsItem++) {
-      compositorOptionsVector.push_back(*compositorOptionsItem);
-    }
-  }
-
-  return MainLoop(argc, argv, compositor, compositorOptionsVector, appName);
-}
-
-int MainLoop(int argc,
-             char* argv[],
-             Compositor* compositor,
              const std::vector<option::Descriptor>& compositorOptions,
              const char* appName) {
   std::stringstream yamlStream;
@@ -1035,11 +1017,6 @@ int MainLoop(int argc,
   if (rank == 0) {
     std::cout << "Rank " << rank << " on pid " << getpid() << std::endl;
     std::cout << "Random seed: " << seed << std::endl;
-#if 0
-    int ready = 0;
-    while (!ready)
-      ;
-#endif
   }
 
   run(runOptions, compositor, yaml);
