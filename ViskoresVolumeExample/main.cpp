@@ -11,10 +11,10 @@
 #include <string>
 #include <vector>
 
-#include <glm/common.hpp>
-#include <glm/geometric.hpp>
-#include <glm/gtc/constants.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+#include <viskores/Math.h>
+#include <viskores/Matrix.h>
+#include <viskores/VectorAnalysis.h>
+#include <viskores/rendering/MatrixHelpers.h>
 
 #include <viskores/Types.h>
 #include <viskores/cont/ArrayHandle.h>
@@ -41,6 +41,52 @@
 #include <Common/LayeredImageInterface.hpp>
 
 namespace {
+
+using Vec3 = viskores::Vec3f_32;
+using Vec4 = viskores::Vec4f_32;
+using Matrix4x4 = viskores::Matrix<viskores::Float32, 4, 4>;
+
+Vec3 componentMin(const Vec3& a, const Vec3& b) {
+  Vec3 result;
+  result[0] = viskores::Min(a[0], b[0]);
+  result[1] = viskores::Min(a[1], b[1]);
+  result[2] = viskores::Min(a[2], b[2]);
+  return result;
+}
+
+Vec3 componentMax(const Vec3& a, const Vec3& b) {
+  Vec3 result;
+  result[0] = viskores::Max(a[0], b[0]);
+  result[1] = viskores::Max(a[1], b[1]);
+  result[2] = viskores::Max(a[2], b[2]);
+  return result;
+}
+
+Matrix4x4 makePerspectiveMatrix(float fovYDegrees,
+                                float aspect,
+                                float nearPlane,
+                                float farPlane) {
+  Matrix4x4 matrix;
+  viskores::MatrixIdentity(matrix);
+
+  const float fovTangent = viskores::Tan(fovYDegrees * viskores::Pi_180f() * 0.5f);
+  const float size = nearPlane * fovTangent;
+  const float left = -size * aspect;
+  const float right = size * aspect;
+  const float bottom = -size;
+  const float top = size;
+
+  matrix(0, 0) = 2.0f * nearPlane / (right - left);
+  matrix(1, 1) = 2.0f * nearPlane / (top - bottom);
+  matrix(0, 2) = (right + left) / (right - left);
+  matrix(1, 2) = (top + bottom) / (top - bottom);
+  matrix(2, 2) = -(farPlane + nearPlane) / (farPlane - nearPlane);
+  matrix(3, 2) = -1.0f;
+  matrix(2, 3) = -(2.0f * farPlane * nearPlane) / (farPlane - nearPlane);
+  matrix(3, 3) = 0.0f;
+
+  return matrix;
+}
 
 struct Options {
   int width = 512;
@@ -154,7 +200,7 @@ class VolumePainterViskores {
              float boxTransparency,
              ImageFull& image,
              const ViskoresVolumeExample::CameraParameters& camera,
-             const glm::vec3* colorOverride = nullptr);
+             const Vec3* colorOverride = nullptr);
 
  private:
   viskores::cont::DataSet boxesToDataSet(
@@ -170,7 +216,7 @@ class VolumePainterViskores {
 
   void canvasToImage(const viskores::rendering::Canvas& canvas,
                      ImageFull& image,
-                     const glm::vec3* colorOverride) const;
+                     const Vec3* colorOverride) const;
 };
 
 class LayeredVolumeImage : public Image, public LayeredImageInterface {
@@ -263,17 +309,13 @@ class LayeredVolumeImage : public Image, public LayeredImageInterface {
 
 float computeBoxDepthHint(const ViskoresVolumeExample::VolumeBox& box,
                           const ViskoresVolumeExample::CameraParameters& camera) {
-  const glm::vec3 viewDir =
-      glm::normalize(camera.lookAt - camera.eye);
+  const Vec3 viewDir = viskores::Normal(camera.lookAt - camera.eye);
   float minDepth = std::numeric_limits<float>::infinity();
   for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
-    const glm::vec3 corner((cornerIndex & 1) ? box.maxCorner.x
-                                             : box.minCorner.x,
-                           (cornerIndex & 2) ? box.maxCorner.y
-                                             : box.minCorner.y,
-                           (cornerIndex & 4) ? box.maxCorner.z
-                                             : box.minCorner.z);
-    minDepth = std::min(minDepth, glm::dot(corner - camera.eye, viewDir));
+    const Vec3 corner((cornerIndex & 1) ? box.maxCorner[0] : box.minCorner[0],
+                      (cornerIndex & 2) ? box.maxCorner[1] : box.minCorner[1],
+                      (cornerIndex & 4) ? box.maxCorner[2] : box.minCorner[2]);
+    minDepth = std::min(minDepth, viskores::Dot(corner - camera.eye, viewDir));
   }
   return minDepth;
 }
@@ -291,15 +333,15 @@ viskores::cont::DataSet VolumePainterViskores::boxesToDataSet(
     const std::vector<ViskoresVolumeExample::VolumeBox>& boxes,
     const ViskoresVolumeExample::VolumeBounds& bounds,
     int samplesPerAxis) const {
-  const glm::vec3 minCorner = bounds.minCorner;
-  const glm::vec3 maxCorner = bounds.maxCorner;
-  const glm::vec3 span = maxCorner - minCorner;
+  const Vec3 minCorner = bounds.minCorner;
+  const Vec3 maxCorner = bounds.maxCorner;
+  const Vec3 span = maxCorner - minCorner;
 
   viskores::cont::DataSetBuilderUniform builder;
   const viskores::Id3 dimensions(samplesPerAxis,
                                  samplesPerAxis,
                                  samplesPerAxis);
-  const viskores::Vec3f_32 origin(minCorner.x, minCorner.y, minCorner.z);
+  const viskores::Vec3f_32 origin(minCorner[0], minCorner[1], minCorner[2]);
 
   const auto safeSpacing = [&](float component) -> float {
     if (samplesPerAxis <= 1) {
@@ -309,9 +351,9 @@ viskores::cont::DataSet VolumePainterViskores::boxesToDataSet(
     return length / static_cast<float>(samplesPerAxis - 1);
   };
 
-  const viskores::Vec3f_32 spacing(safeSpacing(span.x),
-                                   safeSpacing(span.y),
-                                   safeSpacing(span.z));
+  const viskores::Vec3f_32 spacing(safeSpacing(span[0]),
+                                   safeSpacing(span[1]),
+                                   safeSpacing(span[2]));
 
   viskores::cont::DataSet dataset = builder.Create(dimensions, origin, spacing);
 
@@ -323,25 +365,25 @@ viskores::cont::DataSet VolumePainterViskores::boxesToDataSet(
   std::vector<viskores::Float32> pointScalars(pointCount, 0.0f);
   for (int z = 0; z < samplesPerAxis; ++z) {
     const float posZ =
-        minCorner.z + static_cast<float>(z) * spacing[2];
+        minCorner[2] + static_cast<float>(z) * spacing[2];
 
     for (int y = 0; y < samplesPerAxis; ++y) {
       const float posY =
-          minCorner.y + static_cast<float>(y) * spacing[1];
+          minCorner[1] + static_cast<float>(y) * spacing[1];
 
       for (int x = 0; x < samplesPerAxis; ++x) {
         const float posX =
-            minCorner.x + static_cast<float>(x) * spacing[0];
+            minCorner[0] + static_cast<float>(x) * spacing[0];
 
         float sampleValue = 0.0f;
         for (const auto& box : boxes) {
           const bool inside =
-              posX >= (box.minCorner.x - 1e-4f) &&
-              posX <= (box.maxCorner.x + 1e-4f) &&
-              posY >= (box.minCorner.y - 1e-4f) &&
-              posY <= (box.maxCorner.y + 1e-4f) &&
-              posZ >= (box.minCorner.z - 1e-4f) &&
-              posZ <= (box.maxCorner.z + 1e-4f);
+              posX >= (box.minCorner[0] - 1e-4f) &&
+              posX <= (box.maxCorner[0] + 1e-4f) &&
+              posY >= (box.minCorner[1] - 1e-4f) &&
+              posY <= (box.maxCorner[1] + 1e-4f) &&
+              posZ >= (box.minCorner[2] - 1e-4f) &&
+              posZ <= (box.maxCorner[2] + 1e-4f);
           if (inside) {
             sampleValue = std::max(sampleValue, box.scalarValue);
           }
@@ -388,15 +430,9 @@ void VolumePainterViskores::setupCamera(
     const ViskoresVolumeExample::CameraParameters& cameraParams) {
   viskores::rendering::Camera camera;
 
-  camera.SetPosition(viskores::Vec3f_32(cameraParams.eye.x,
-                                        cameraParams.eye.y,
-                                        cameraParams.eye.z));
-  camera.SetLookAt(viskores::Vec3f_32(cameraParams.lookAt.x,
-                                      cameraParams.lookAt.y,
-                                      cameraParams.lookAt.z));
-  camera.SetViewUp(viskores::Vec3f_32(cameraParams.up.x,
-                                      cameraParams.up.y,
-                                      cameraParams.up.z));
+  camera.SetPosition(cameraParams.eye);
+  camera.SetLookAt(cameraParams.lookAt);
+  camera.SetViewUp(cameraParams.up);
   camera.SetFieldOfView(cameraParams.fovYDegrees);
   camera.SetClippingRange(cameraParams.nearPlane, cameraParams.farPlane);
 
@@ -406,7 +442,7 @@ void VolumePainterViskores::setupCamera(
 void VolumePainterViskores::canvasToImage(
     const viskores::rendering::Canvas& viskoresCanvas,
     ImageFull& image,
-    const glm::vec3* colorOverride) const {
+    const Vec3* colorOverride) const {
   auto* depthSortedImage =
       dynamic_cast<ImageRGBAFloatColorDepthSort*>(&image);
   if (depthSortedImage == nullptr) {
@@ -433,9 +469,9 @@ void VolumePainterViskores::canvasToImage(
       float blue = clampUnit(static_cast<float>(color[2]));
       if (colorOverride != nullptr) {
         const float intensity = (red + green + blue) / 3.0f;
-        red = clampUnit(intensity * colorOverride->x);
-        green = clampUnit(intensity * colorOverride->y);
-        blue = clampUnit(intensity * colorOverride->z);
+        red = clampUnit(intensity * (*colorOverride)[0]);
+        green = clampUnit(intensity * (*colorOverride)[1]);
+        blue = clampUnit(intensity * (*colorOverride)[2]);
       }
       depthSortedImage->setColor(x, y, Color(red, green, blue, alpha));
       float depth = depthPortal.Get(pixelIndex);
@@ -456,7 +492,7 @@ void VolumePainterViskores::paint(
     float boxTransparency,
     ImageFull& image,
     const ViskoresVolumeExample::CameraParameters& camera,
-    const glm::vec3* colorOverride) {
+    const Vec3* colorOverride) {
   try {
     viskores::cont::DataSet dataset =
         boxesToDataSet(boxes, bounds, samplesPerAxis);
@@ -465,11 +501,12 @@ void VolumePainterViskores::paint(
     viskores::cont::ColorTable colorTable =
         buildColorTable(numProcs, alphaScale);
 
-    const glm::vec3 span = bounds.maxCorner - bounds.minCorner;
+    const Vec3 span = bounds.maxCorner - bounds.minCorner;
+    const float minSpan =
+        std::min({span[0], span[1], span[2]});
     const float minSpacing = std::max(
         1e-4f,
-        std::min(span.x, std::min(span.y, span.z)) /
-            static_cast<float>(std::max(samplesPerAxis - 1, 1)));
+        minSpan / static_cast<float>(std::max(samplesPerAxis - 1, 1)));
 
     viskores::rendering::CanvasRayTracer localCanvas(image.getWidth(),
                                                      image.getHeight());
@@ -541,15 +578,15 @@ ViskoresVolumeExample::createRankSpecificBoxes(
   constexpr int totalBoxes = boxesX * boxesY * boxesZ;
   constexpr float boxScale = 0.8f;
   constexpr float spacing = boxScale;  // centers are one box width apart
-  const std::array<glm::vec3, 8> kPalette = {
-      glm::vec3(0.894f, 0.102f, 0.110f),  // red
-      glm::vec3(0.216f, 0.494f, 0.722f),  // blue
-      glm::vec3(0.302f, 0.686f, 0.290f),  // green
-      glm::vec3(0.596f, 0.306f, 0.639f),  // purple
-      glm::vec3(1.000f, 0.498f, 0.000f),  // orange
-      glm::vec3(1.000f, 0.929f, 0.435f),  // yellow
-      glm::vec3(0.651f, 0.337f, 0.157f),  // brown
-      glm::vec3(0.969f, 0.506f, 0.749f)};  // pink
+  const std::array<Vec3, 8> kPalette = {
+      Vec3(0.894f, 0.102f, 0.110f),  // red
+      Vec3(0.216f, 0.494f, 0.722f),  // blue
+      Vec3(0.302f, 0.686f, 0.290f),  // green
+      Vec3(0.596f, 0.306f, 0.639f),  // purple
+      Vec3(1.000f, 0.498f, 0.000f),  // orange
+      Vec3(1.000f, 0.929f, 0.435f),  // yellow
+      Vec3(0.651f, 0.337f, 0.157f),  // brown
+      Vec3(0.969f, 0.506f, 0.749f)};  // pink
 
   const int ranks = std::max(numProcs, 1);
   const int boxesPerRank = totalBoxes / ranks;
@@ -561,9 +598,9 @@ ViskoresVolumeExample::createRankSpecificBoxes(
   std::vector<VolumeBox> boxes;
   boxes.reserve(std::max(localBoxCount, 0));
 
-  glm::vec3 localMin(std::numeric_limits<float>::max());
-  glm::vec3 localMax(-std::numeric_limits<float>::max());
-  const glm::vec3 halfExtent(boxScale * 0.5f);
+  Vec3 localMin(std::numeric_limits<float>::max());
+  Vec3 localMax(-std::numeric_limits<float>::max());
+  const Vec3 halfExtent(boxScale * 0.5f);
 
   for (int localIndex = 0; localIndex < localBoxCount; ++localIndex) {
     const int boxIndex = firstBoxIndex + localIndex;
@@ -576,16 +613,16 @@ ViskoresVolumeExample::createRankSpecificBoxes(
     const int row = inLayerIndex / boxesX;
     const int col = inLayerIndex % boxesX;
 
-    glm::vec3 offset(0.0f);
-    offset.x = (static_cast<float>(col) -
-                (static_cast<float>(boxesX) - 1.0f) * 0.5f) *
-               spacing;
-    offset.y = ((static_cast<float>(boxesY) - 1.0f) * 0.5f -
-                static_cast<float>(row)) *
-               spacing;
-    offset.z = (static_cast<float>(layer) -
-                (static_cast<float>(boxesZ) - 1.0f) * 0.5f) *
-               spacing;
+    Vec3 offset(0.0f);
+    offset[0] = (static_cast<float>(col) -
+                 (static_cast<float>(boxesX) - 1.0f) * 0.5f) *
+                spacing;
+    offset[1] = ((static_cast<float>(boxesY) - 1.0f) * 0.5f -
+                 static_cast<float>(row)) *
+                spacing;
+    offset[2] = (static_cast<float>(layer) -
+                 (static_cast<float>(boxesZ) - 1.0f) * 0.5f) *
+                spacing;
 
     VolumeBox box;
     box.minCorner = offset - halfExtent;
@@ -596,17 +633,17 @@ ViskoresVolumeExample::createRankSpecificBoxes(
 
     boxes.push_back(box);
 
-    localMin = glm::min(localMin, box.minCorner);
-    localMax = glm::max(localMax, box.maxCorner);
+    localMin = componentMin(localMin, box.minCorner);
+    localMax = componentMax(localMax, box.maxCorner);
   }
 
   if (boxes.empty()) {
-    localMin = glm::vec3(std::numeric_limits<float>::max());
-    localMax = glm::vec3(-std::numeric_limits<float>::max());
+    localMin = Vec3(std::numeric_limits<float>::max());
+    localMax = Vec3(-std::numeric_limits<float>::max());
   }
 
-  std::array<float, 3> localMinArray = {localMin.x, localMin.y, localMin.z};
-  std::array<float, 3> localMaxArray = {localMax.x, localMax.y, localMax.z};
+  std::array<float, 3> localMinArray = {localMin[0], localMin[1], localMin[2]};
+  std::array<float, 3> localMaxArray = {localMax[0], localMax[1], localMax[2]};
   std::array<float, 3> globalMinArray = {
       std::numeric_limits<float>::max(),
       std::numeric_limits<float>::max(),
@@ -629,20 +666,20 @@ ViskoresVolumeExample::createRankSpecificBoxes(
                 MPI_MAX,
                 MPI_COMM_WORLD);
 
-  glm::vec3 minCorner(globalMinArray[0],
-                      globalMinArray[1],
-                      globalMinArray[2]);
-  glm::vec3 maxCorner(globalMaxArray[0],
-                      globalMaxArray[1],
-                      globalMaxArray[2]);
+  Vec3 minCorner(globalMinArray[0],
+                 globalMinArray[1],
+                 globalMinArray[2]);
+  Vec3 maxCorner(globalMaxArray[0],
+                 globalMaxArray[1],
+                 globalMaxArray[2]);
 
-  if (minCorner.x > maxCorner.x || minCorner.y > maxCorner.y ||
-      minCorner.z > maxCorner.z) {
-    minCorner = glm::vec3(-1.0f);
-    maxCorner = glm::vec3(1.0f);
+  if (minCorner[0] > maxCorner[0] || minCorner[1] > maxCorner[1] ||
+      minCorner[2] > maxCorner[2]) {
+    minCorner = Vec3(-1.0f);
+    maxCorner = Vec3(1.0f);
   }
 
-  const glm::vec3 padding(spacing * 0.35f);
+  const Vec3 padding(spacing * 0.35f);
   globalBounds.minCorner = minCorner - padding;
   globalBounds.maxCorner = maxCorner + padding;
 
@@ -652,9 +689,9 @@ ViskoresVolumeExample::createRankSpecificBoxes(
     localBoundsMax = localMax;
     hasLocalData = true;
   } else {
-    localCentroid = glm::vec3(0.0f);
-    localBoundsMin = glm::vec3(0.0f);
-    localBoundsMax = glm::vec3(0.0f);
+    localCentroid = Vec3(0.0f);
+    localBoundsMin = Vec3(0.0f);
+    localBoundsMax = Vec3(0.0f);
     hasLocalData = false;
   }
 
@@ -668,7 +705,7 @@ void ViskoresVolumeExample::paint(
     float boxTransparency,
     ImageFull& image,
     const CameraParameters& camera,
-    const glm::vec3* colorOverride) {
+    const Vec3* colorOverride) {
   if (boxes.empty()) {
     image.clear(Color(0.0f, 0.0f, 0.0f, 0.0f));
     return;
@@ -696,11 +733,10 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
     const CameraParameters& camera,
     float aspect,
     MPI_Group baseGroup) const {
-  const float fovYRadians = glm::radians(camera.fovYDegrees);
-  const glm::mat4 modelview =
-      glm::lookAt(camera.eye, camera.lookAt, camera.up);
-  const glm::mat4 projection =
-      glm::perspective(fovYRadians, aspect, camera.nearPlane, camera.farPlane);
+  const Matrix4x4 modelview =
+      viskores::rendering::MatrixHelpers::ViewMatrix(camera.eye, camera.lookAt, camera.up);
+  const Matrix4x4 projection =
+      makePerspectiveMatrix(camera.fovYDegrees, aspect, camera.nearPlane, camera.farPlane);
 
   int localHasDataFlag = hasLocalData ? 1 : 0;
   std::vector<int> allHasData(numProcs, 0);
@@ -712,12 +748,12 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
                 MPI_INT,
                 MPI_COMM_WORLD);
 
-  std::array<float, 6> localBoundsArray = {localBoundsMin.x,
-                                           localBoundsMin.y,
-                                           localBoundsMin.z,
-                                           localBoundsMax.x,
-                                           localBoundsMax.y,
-                                           localBoundsMax.z};
+  std::array<float, 6> localBoundsArray = {localBoundsMin[0],
+                                           localBoundsMin[1],
+                                           localBoundsMin[2],
+                                           localBoundsMax[0],
+                                           localBoundsMax[1],
+                                           localBoundsMax[2]};
   std::vector<float> allBounds(static_cast<std::size_t>(numProcs) * 6, 0.0f);
   MPI_Allgather(localBoundsArray.data(),
                 6,
@@ -737,25 +773,24 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
   for (int proc = 0; proc < numProcs; ++proc) {
     if (allHasData[proc]) {
       const std::size_t base = static_cast<std::size_t>(proc) * 6;
-      const glm::vec3 boundsMin(allBounds[base + 0],
-                                allBounds[base + 1],
-                                allBounds[base + 2]);
-      const glm::vec3 boundsMax(allBounds[base + 3],
-                                allBounds[base + 4],
-                                allBounds[base + 5]);
+      const Vec3 boundsMin(allBounds[base + 0],
+                           allBounds[base + 1],
+                           allBounds[base + 2]);
+      const Vec3 boundsMax(allBounds[base + 3],
+                           allBounds[base + 4],
+                           allBounds[base + 5]);
 
       float minDepth = std::numeric_limits<float>::infinity();
       float maxDepth = -std::numeric_limits<float>::infinity();
       for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
-        const glm::vec3 corner(
-            (cornerIndex & 1) ? boundsMax.x : boundsMin.x,
-            (cornerIndex & 2) ? boundsMax.y : boundsMin.y,
-            (cornerIndex & 4) ? boundsMax.z : boundsMin.z);
-        const glm::vec4 homogeneousCorner(corner, 1.0f);
-        const glm::vec4 clipSpace =
-            projection * (modelview * homogeneousCorner);
-        if (clipSpace.w != 0.0f) {
-          const float normalizedDepth = clipSpace.z / clipSpace.w;
+        const Vec3 corner((cornerIndex & 1) ? boundsMax[0] : boundsMin[0],
+                          (cornerIndex & 2) ? boundsMax[1] : boundsMin[1],
+                          (cornerIndex & 4) ? boundsMax[2] : boundsMin[2]);
+        const Vec4 homogeneousCorner(corner[0], corner[1], corner[2], 1.0f);
+        const Vec4 viewSpace = viskores::MatrixMultiply(modelview, homogeneousCorner);
+        const Vec4 clipSpace = viskores::MatrixMultiply(projection, viewSpace);
+        if (clipSpace[3] != 0.0f) {
+          const float normalizedDepth = clipSpace[2] / clipSpace[3];
           minDepth = std::min(minDepth, normalizedDepth);
           maxDepth = std::max(maxDepth, normalizedDepth);
         }
@@ -832,35 +867,35 @@ int ViskoresVolumeExample::run(int argc, char** argv) {
   MpiGroupGuard groupGuard;
   MPI_Comm_group(MPI_COMM_WORLD, &groupGuard.group);
 
-  const glm::vec3 center = 0.5f * (bounds.minCorner + bounds.maxCorner);
-  const glm::vec3 halfExtent =
+  const Vec3 center = 0.5f * (bounds.minCorner + bounds.maxCorner);
+  const Vec3 halfExtent =
       0.5f * (bounds.maxCorner - bounds.minCorner);
-  const float boundingRadius = glm::length(halfExtent);
+  const float boundingRadius = viskores::Magnitude(halfExtent);
 
   for (int trial = 0; trial < options.trials; ++trial) {
     const float aspect =
         static_cast<float>(options.width) / static_cast<float>(options.height);
-    const float fovY = glm::pi<float>() / 4.0f;
+    const float fovY = viskores::Pif() * 0.25f;
     const float cameraDistance =
         boundingRadius / std::tan(fovY * 0.5f) + boundingRadius * 1.5f;
 
     std::mt19937 trialRng(kDefaultCameraSeed +
                           static_cast<unsigned int>(trial));
     std::uniform_real_distribution<float> angleDistribution(
-        0.0f, glm::two_pi<float>());
+        0.0f, viskores::TwoPif());
     const float angle = angleDistribution(trialRng);
 
-    const glm::vec3 eye(center.x + cameraDistance * std::sin(angle),
-                        center.y + cameraDistance * 0.35f,
-                        center.z + cameraDistance * std::cos(angle));
+    const Vec3 eye(center[0] + cameraDistance * std::sin(angle),
+                   center[1] + cameraDistance * 0.35f,
+                   center[2] + cameraDistance * std::cos(angle));
 
     const float nearPlane = 0.1f;
     const float farPlane = cameraDistance * 4.0f;
     CameraParameters camera{
         eye,
         center,
-        glm::vec3(0.0f, 1.0f, 0.0f),
-        fovY * 180.0f / glm::pi<float>(),
+        Vec3(0.0f, 1.0f, 0.0f),
+        fovY * 180.0f / viskores::Pif(),
         nearPlane,
         farPlane};
 

@@ -6,7 +6,7 @@
 #include <Common/Compositor.hpp>
 #include <Common/ImageFull.hpp>
 
-#include <glm/vec3.hpp>
+#include <viskores/Types.h>
 
 #include <mpi.h>
 
@@ -25,21 +25,21 @@ class ViskoresVolumeExample {
   int run(int argc, char** argv);
 
   struct VolumeBox {
-    glm::vec3 minCorner;
-    glm::vec3 maxCorner;
+    viskores::Vec3f_32 minCorner;
+    viskores::Vec3f_32 maxCorner;
     float scalarValue;
-    glm::vec3 color;
+    viskores::Vec3f_32 color;
   };
 
   struct VolumeBounds {
-    glm::vec3 minCorner;
-    glm::vec3 maxCorner;
+    viskores::Vec3f_32 minCorner;
+    viskores::Vec3f_32 maxCorner;
   };
 
   struct CameraParameters {
-    glm::vec3 eye;
-    glm::vec3 lookAt;
-    glm::vec3 up;
+    viskores::Vec3f_32 eye;
+    viskores::Vec3f_32 lookAt;
+    viskores::Vec3f_32 up;
     float fovYDegrees;
     float nearPlane;
     float farPlane;
@@ -54,7 +54,7 @@ class ViskoresVolumeExample {
              float boxTransparency,
              ImageFull& image,
              const CameraParameters& camera,
-             const glm::vec3* colorOverride = nullptr);
+             const viskores::Vec3f_32* colorOverride = nullptr);
   Compositor* getCompositor();
   MPI_Group buildVisibilityOrderedGroup(const CameraParameters& camera,
                                         float aspect,
@@ -63,9 +63,9 @@ class ViskoresVolumeExample {
   int rank;
   int numProcs;
 
-  mutable glm::vec3 localCentroid;
-  mutable glm::vec3 localBoundsMin;
-  mutable glm::vec3 localBoundsMax;
+  mutable viskores::Vec3f_32 localCentroid;
+  mutable viskores::Vec3f_32 localBoundsMin;
+  mutable viskores::Vec3f_32 localBoundsMax;
   mutable bool hasLocalData;
 };
 
