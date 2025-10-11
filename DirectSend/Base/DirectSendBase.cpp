@@ -9,7 +9,6 @@
 #include "DirectSendBase.hpp"
 
 #include <Common/LayeredImageInterface.hpp>
-#include <Common/MainLoop.hpp>
 
 #include <array>
 #include <iostream>
@@ -388,20 +387,6 @@ std::unique_ptr<Image> DirectSendBase::composeLayered(
 }
 
 enum optionIndex { MAX_IMAGE_SPLIT };
-
-std::vector<option::Descriptor> DirectSendBase::getOptionVector() {
-  std::vector<option::Descriptor> usage;
-  // clang-format off
-  usage.push_back(
-    {MAX_IMAGE_SPLIT, 0, "", "max-image-split", PositiveIntArg,
-     "  --max-image-split=<num> Set the maximum number of times the image will\n"
-     "                          be split during compositing. Setting this\n"
-     "                          parameter can reduce the total network traffic,\n"
-     "                          but at the expense of load imbalance.\n"});
-  // clang-format on
-
-  return usage;
-}
 
 bool DirectSendBase::setOptions(const std::vector<option::Option>& options,
                                 MPI_Comm,

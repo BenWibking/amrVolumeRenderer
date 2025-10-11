@@ -22,7 +22,6 @@ set(srcs
   ImageRGBFloatColorDepth.cpp
   ImageSparse.cpp
   MakeBox.cpp
-  MainLoop.cpp
   Mesh.cpp
   MeshHelper.cpp
   ReadSTL.cpp
@@ -48,7 +47,6 @@ set(headers
   ImageSparse.hpp
   ImageSparseColorDepth.hpp
   ImageSparseColorOnly.hpp
-  MainLoop.hpp
   MakeBox.hpp
   Mesh.hpp
   MeshHelper.hpp
