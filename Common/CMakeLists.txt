@@ -20,7 +20,6 @@ set(srcs
   ImageRGBAUByteColorOnly.cpp
   ImageRGBFloatColorDepth.cpp
   ImageSparse.cpp
-  Mesh.cpp
   SavePPM.cpp
   )
 
@@ -41,9 +40,7 @@ set(headers
   ImageSparse.hpp
   ImageSparseColorDepth.hpp
   ImageSparseColorOnly.hpp
-  Mesh.hpp
   SavePPM.hpp
-  Triangle.hpp
   Viewport.hpp
   )
 

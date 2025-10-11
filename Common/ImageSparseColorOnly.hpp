@@ -14,6 +14,7 @@
 #include "ImageColorOnly.hpp"
 
 #include <algorithm>
+#include <iostream>
 
 template <typename Features>
 class ImageSparseColorOnly : public ImageSparse {

@@ -8,8 +8,6 @@
 #ifndef COLOR_HPP
 #define COLOR_HPP
 
-#include <iostream>
-
 /// \brief It's a color!
 ///
 /// This class provides the basic representation of a color. This class was
@@ -96,51 +94,6 @@ class Color {
     // can give a result outside the range (i.e. 256),
     // but we have to clamp anyway.
     return static_cast<unsigned char>((tv < 0) ? 0 : (tv > 255) ? 255 : tv);
-  }
-
-  void GetRGBA(unsigned char& r,
-               unsigned char& g,
-               unsigned char& b,
-               unsigned char& a) const {
-    r = GetComponentAsByte(0);
-    g = GetComponentAsByte(1);
-    b = GetComponentAsByte(2);
-    a = GetComponentAsByte(3);
-  }
-
-  float RawBrightness() const {
-    return (Components[0] + Components[1] + Components[2]) / 3.f;
-  }
-
-  /// \brief Scales the color's intensity by a given factor
-  ///
-  /// Returns a new color that is scaled by the given factor. This is useful
-  /// for lighting.
-  ///
-  Color Scale(float scale) const {
-    return Color(scale * this->Components[0],
-                 scale * this->Components[1],
-                 scale * this->Components[2],
-                 this->Components[3]);
-  }
-
-  /// \brief Blends this color with the given color.
-  ///
-  /// Uses the Porter and Duff over operator for the blending. Note that both
-  /// colors need to be "prescaled" by their respective alphas.
-  ///
-  Color BlendOver(const Color& under) const {
-    const float scale = 1.0f - this->Components[3];
-    return Color(this->Components[0] + scale * under.Components[0],
-                 this->Components[1] + scale * under.Components[1],
-                 this->Components[2] + scale * under.Components[2],
-                 this->Components[3] + scale * under.Components[3]);
-  }
-
-  friend std::ostream& operator<<(std::ostream& out, const Color& c) {
-    out << "[" << c.Components[0] << "," << c.Components[1] << ","
-        << c.Components[2] << "," << c.Components[3] << "]";
-    return out;
   }
 };
 
