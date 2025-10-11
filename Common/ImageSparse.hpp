@@ -62,10 +62,6 @@ class ImageSparse : public Image {
       return (this->workingRegion.backgroundPixels > 0);
     }
 
-    bool inForeground() const {
-      return !inBackground() && (this->workingRegion.foregroundPixels > 0);
-    }
-
     const RunLengthRegion& getWorkingRegion() const {
       return this->workingRegion;
     }

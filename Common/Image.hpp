@@ -112,12 +112,6 @@ class Image {
     return y * this->getWidth() + x - this->getRegionBegin();
   }
 
-  /// \brief Converts a pixel index to the x/y location.
-  void xyIndices(int pixelIndex, int& x, int& y) {
-    x = (pixelIndex + this->getRegionBegin()) % this->getWidth();
-    y = (pixelIndex + this->getRegionBegin()) / this->getWidth();
-  }
-
   /// \brief Clears the image to the given color and depth (if applicable).
   void clear(const Color& color = Color(0, 0, 0, 0), float depth = 1.0f);
 

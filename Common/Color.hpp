@@ -32,13 +32,6 @@ class Color {
     this->Components[3] = a_;
   }
 
-  Color(const float components[4]) {
-    this->Components[0] = components[0];
-    this->Components[1] = components[1];
-    this->Components[2] = components[2];
-    this->Components[3] = components[3];
-  }
-
   void SetComponentFromByte(int i, unsigned char v) {
     // Note that though GetComponentAsByte below
     // multiplies by 256, we're dividing by 255. here.
