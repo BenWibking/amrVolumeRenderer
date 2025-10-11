@@ -29,6 +29,7 @@ mpirun -np 4 build/bin/ViskoresVolumeExample \
 - `--width` / `--height`: Framebuffer size in pixels (default: 512×512).
 - `--trials`: Number of render iterations for timing (default: 1).
 - `--samples`: Resolution of the structured volume along each axis (default: 64).
+- `--no-visibility-graph`: Disable the visibility-graph-based ordering (enabled by default).
 - `--yaml-output`: Write timing information to a YAML file.
 
 The application writes composited `.ppm` images named `viskores-volume-trial-<N>.ppm` on rank 0.

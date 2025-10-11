@@ -60,7 +60,7 @@ struct Options {
   int trials = 1;
   int samplesPerAxis = 64;
   float boxTransparency = 0.0f;
-  bool useVisibilityGraph = false;
+  bool useVisibilityGraph = true;
 };
 
 void printUsage() {
@@ -73,7 +73,9 @@ void printUsage() {
             << "  --box-transparency T  Transparency factor per box in [0,1] "
                "(default: 0)\n"
             << "  --visibility-graph  Enable topological ordering using a visibility "
-               "graph\n"
+               "graph (default)\n"
+            << "  --no-visibility-graph  Disable topological ordering using a "
+               "visibility graph\n"
             << "  -h, --help       Show this help message\n";
 }
 
@@ -119,6 +121,8 @@ Options parseOptions(int argc, char** argv, int rank, bool& exitEarly) {
       }
     } else if (arg == "--visibility-graph") {
       options.useVisibilityGraph = true;
+    } else if (arg == "--no-visibility-graph") {
+      options.useVisibilityGraph = false;
     } else if (arg == "--help" || arg == "-h") {
       if (rank == 0) {
         printUsage();
