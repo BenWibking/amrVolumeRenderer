@@ -50,16 +50,13 @@ image sizes to minimize runtime.
 ## Repository Layout
 
   * `DirectSend/` DirectSend compositor implementations and shared utilities.
-    - `DirectSend/Base/` Reference compositing path.
-    - `DirectSend/Overlap/` Variants that overlap communication and computation.
-  * `Common/` Shared rendering primitives, image buffers, and the main loop.
-  * `Paint/` Scene setup and drawing code reused across miniapps.
-  * `Base/` Reference compositing path wiring and wrappers around DirectSend.
-  * `Overlap/` Communication overlap miniapp entry points.
-  * `ViskoresExample/` Example showing integration patterns with Viskores.
+    - `DirectSend/Base/` Primary compositing path used by the sample app.
+  * `Common/` Shared rendering primitives, image buffers, and utilities.
+  * `ViskoresVolumeExample/` Example miniapp that drives the compositor with Viskores.
   * `Reference/` Sample configurations and reference imagery.
-  * `ThirdParty/` Vendored headers such as glm and optionparser (do not modify).
+  * `ThirdParty/` Vendored headers (GLM, IceT, optionparser).
   * `CMake/` Auxiliary build scripts and macros.
+  * `Utilites/` Miscellaneous developer scripts.
 
 ## License
 

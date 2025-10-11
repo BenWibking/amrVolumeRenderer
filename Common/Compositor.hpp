@@ -14,8 +14,6 @@
 #include <Common/Image.hpp>
 #include <Common/YamlWriter.hpp>
 
-#include <optionparser.h>
-
 #include <mpi.h>
 
 class Compositor {
@@ -38,25 +36,6 @@ class Compositor {
                                          MPI_Group group,
                                          MPI_Comm communicator,
                                          YamlWriter &yaml) = 0;
-
-  /// If a compositor can be controled by some custom command line arguments,
-  /// it should override this method to get the options and set up the state.
-  /// It should also use the given YamlWriter to record the options used (even
-  /// if default values are used).
-  ///
-  /// This method is also given an MPI communicator. It can be assumed that
-  /// the composition will happen on the same communicator (or a trival copy
-  /// of it).
-  ///
-  /// This method should return true if all the options are OK, false
-  /// otherwise. If false is returned, then a usage statement will be outputted
-  /// to standard error and the program will halt. If the method returns false,
-  /// it should print a descriptive reason why the error occured to standard
-  /// error before returning.
-  ///
-  virtual bool setOptions(const std::vector<option::Option> &options,
-                          MPI_Comm communicator,
-                          YamlWriter &yaml);
 
   virtual ~Compositor() = default;
 };

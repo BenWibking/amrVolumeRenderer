@@ -14,15 +14,13 @@
 class LayeredImageInterface;
 
 class DirectSendBase : public Compositor {
-  int maxSplit;
-
  public:
   DirectSendBase();
 
- std::unique_ptr<Image> compose(Image *localImage,
-                                MPI_Group group,
-                                MPI_Comm communicator,
-                                YamlWriter &yaml) final;
+  std::unique_ptr<Image> compose(Image* localImage,
+                                 MPI_Group group,
+                                 MPI_Comm communicator,
+                                 YamlWriter& yaml) final;
 
   /// Performs the direct-send compositing by sending a piece of the image from
   /// every process in sendGroup to each process in recvGroup. The end result
@@ -34,23 +32,18 @@ class DirectSendBase : public Compositor {
   /// Any process in sendGroup that is not in recvGroup will return an image
   /// with an empty range.
   ///
-  static std::unique_ptr<Image> compose(Image *localImage,
+  static std::unique_ptr<Image> compose(Image* localImage,
                                         MPI_Group sendGroup,
                                         MPI_Group recvGroup,
                                         MPI_Comm communicator,
-                                        YamlWriter &yaml);
-
-  bool setOptions(const std::vector<option::Option> &options,
-                  MPI_Comm communicator,
-                  YamlWriter &yaml) override;
-  static std::vector<option::Descriptor> getOptionVector();
+                                        YamlWriter& yaml);
 
  private:
-  std::unique_ptr<Image> composeLayered(Image *layeredImage,
-                                        LayeredImageInterface &layers,
+  std::unique_ptr<Image> composeLayered(Image* layeredImage,
+                                        LayeredImageInterface& layers,
                                         MPI_Group group,
                                         MPI_Comm communicator,
-                                        YamlWriter &yaml);
+                                        YamlWriter& yaml);
 };
 
 #endif  // DIRECTSENDBASE_HPP

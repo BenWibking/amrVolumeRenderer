@@ -10,9 +10,13 @@
 
 #include <Common/LayeredImageInterface.hpp>
 
-#include <array>
+#include <algorithm>
+#include <cassert>
 #include <iostream>
+#include <limits>
+#include <memory>
 #include <numeric>
+#include <vector>
 
 constexpr int DEFAULT_MAX_IMAGE_SPLIT = 1000000;
 
@@ -217,7 +221,7 @@ std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
   return resultImage;
 }
 
-DirectSendBase::DirectSendBase() : maxSplit(DEFAULT_MAX_IMAGE_SPLIT) {}
+DirectSendBase::DirectSendBase() = default;
 
 std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
                                                MPI_Group group,
@@ -231,9 +235,9 @@ std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
   MPI_Group_size(group, &groupSize);
 
   MPI_Group recvGroup;
-  std::array<int[3], 1> procRange = {
-      0, std::min(this->maxSplit, groupSize) - 1, 1};
-  MPI_Group_range_incl(group, 1, procRange.data(), &recvGroup);
+  int procRange[1][3] = {
+      {0, std::min(DEFAULT_MAX_IMAGE_SPLIT, groupSize) - 1, 1}};
+  MPI_Group_range_incl(group, 1, procRange, &recvGroup);
 
   std::unique_ptr<Image> result =
       this->compose(localImage, group, recvGroup, communicator, yaml);
@@ -321,9 +325,9 @@ std::unique_ptr<Image> DirectSendBase::composeLayered(
   MPI_Group_size(group, &groupSize);
 
   MPI_Group recvGroup;
-  std::array<int[3], 1> procRange = {
-      0, std::min(this->maxSplit, groupSize) - 1, 1};
-  MPI_Group_range_incl(group, 1, procRange.data(), &recvGroup);
+  int procRange[1][3] = {
+      {0, std::min(DEFAULT_MAX_IMAGE_SPLIT, groupSize) - 1, 1}};
+  MPI_Group_range_incl(group, 1, procRange, &recvGroup);
 
   std::unique_ptr<Image> accumulatedImage;
 
@@ -384,17 +388,4 @@ std::unique_ptr<Image> DirectSendBase::composeLayered(
   }
 
   return accumulatedImage;
-}
-
-enum optionIndex { MAX_IMAGE_SPLIT };
-
-bool DirectSendBase::setOptions(const std::vector<option::Option>& options,
-                                MPI_Comm,
-                                YamlWriter& yaml) {
-  if (options[MAX_IMAGE_SPLIT]) {
-    this->maxSplit = atoi(options[MAX_IMAGE_SPLIT].arg);
-  }
-  yaml.AddDictionaryEntry("max-image-split", this->maxSplit);
-
-  return true;
 }

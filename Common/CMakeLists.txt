@@ -13,7 +13,6 @@ cmake_minimum_required(VERSION 3.10)
 project(miniGraphicsCommon CXX)
 
 set(srcs
-  Compositor.cpp
   Image.cpp
   ImageRGBAFloatColorOnly.cpp
   ImageRGBAFloatColorDepthSort.cpp
@@ -21,12 +20,8 @@ set(srcs
   ImageRGBAUByteColorOnly.cpp
   ImageRGBFloatColorDepth.cpp
   ImageSparse.cpp
-  MakeBox.cpp
   Mesh.cpp
-  MeshHelper.cpp
-  ReadSTL.cpp
   SavePPM.cpp
-  Timer.cpp
   YamlWriter.cpp
   )
 
@@ -47,12 +42,8 @@ set(headers
   ImageSparse.hpp
   ImageSparseColorDepth.hpp
   ImageSparseColorOnly.hpp
-  MakeBox.hpp
   Mesh.hpp
-  MeshHelper.hpp
-  ReadSTL.hpp
   SavePPM.hpp
-  Timer.hpp
   Triangle.hpp
   Viewport.hpp
   YamlWriter.hpp

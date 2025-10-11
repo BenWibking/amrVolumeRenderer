@@ -40,20 +40,22 @@ ctest
 **Core Concept:** miniGraphics demonstrates parallel sort-last rendering algorithms. Each miniapp implements a different image compositing strategy for combining multiple rendered images into a single result.
 
 **Project Structure:**
-- **Algorithm Directories:** Each top-level directory (BinarySwap/, DirectSend/, 2-3-Swap/, RadixK/, IceT/) contains variants of a specific compositing algorithm
-- **Common/:** Shared utilities (Image classes, Compositor base, Mesh handling, file I/O)
-- **Paint/:** Rendering backends (PainterViskores for distributed rendering)
-- **ThirdParty/:** External dependencies (GLM, optionparser, IceT)
+- **Common/** Shared utilities (image classes, compositor base, YAML helpers, mesh handling)
+- **DirectSend/Base/** Direct-send compositor used by the sample application
+- **ViskoresVolumeExample/** Miniapp that drives the compositor using Viskores for volume rendering
+- **ThirdParty/** External dependencies (GLM, optionparser, IceT)
+- **Reference/** Sample imagery and configurations
+- **Utilites/** Small helper scripts
 
 **Key Dependencies:**
 - MPI (required) - parallel operations
 - C++11 compiler (required)
 - OpenGL/GLEW/GLFW (optional) - hardware rendering
 
-**Execution Flow:** MainLoop → Compositor → Painter
-- Painter renders local geometry
-- Compositor combines images from multiple processes using algorithm-specific strategy
-- MainLoop coordinates overall execution and output
+**Execution Flow:** Miniapp → Viskores volume renderer → DirectSend compositor
+- The miniapp constructs volume geometry and camera parameters
+- Viskores renders per-rank images
+- The compositor combines images from multiple processes
 
 **Adding New Algorithms:** Follow existing pattern - create directory with CMakeLists.txt, implement compositor class inheriting from base, use `miniGraphics_executable()` macro for consistent build configuration.
 

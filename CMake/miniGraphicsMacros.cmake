@@ -45,7 +45,6 @@ function(miniGraphics_target_features target_name)
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${miniGraphics_SOURCE_DIR}
     ${miniGraphics_SOURCE_DIR}/ThirdParty/glm/include
-    ${miniGraphics_SOURCE_DIR}/ThirdParty/optionparser/include
     ${MPI_CXX_INCLUDE_PATH}
     )
 
@@ -112,7 +111,7 @@ function(miniGraphics_executable miniapp_name)
   miniGraphics_target_features(${miniapp_name})
 
   target_link_libraries(${miniapp_name}
-    PRIVATE miniGraphicsCommon miniGraphicsPaint)
+    PRIVATE miniGraphicsCommon)
 
   set_source_files_properties(${headers} HEADER_ONLY TRUE)
 
@@ -154,8 +153,4 @@ endfunction(miniGraphics_executable)
 
 if(NOT TARGET miniGraphicsCommon)
   add_subdirectory(${miniGraphics_SOURCE_DIR}/Common ${CMAKE_BINARY_DIR}/Common)
-endif()
-
-if(NOT TARGET miniGraphicsPaint)
-  add_subdirectory(${miniGraphics_SOURCE_DIR}/Paint ${CMAKE_BINARY_DIR}/Paint)
 endif()
