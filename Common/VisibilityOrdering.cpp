@@ -71,6 +71,7 @@ MPI_Group BuildVisibilityOrderedGroup(
     int rank,
     int numProcs,
     bool useVisibilityGraph,
+    bool writeVisibilityGraph,
     const std::vector<minigraphics::volume::AmrBox>& localBoxes,
     MPI_Comm communicator) {
   const Matrix4x4 modelview =
@@ -331,7 +332,7 @@ MPI_Group BuildVisibilityOrderedGroup(
 
     auto exportGraph = [&](const std::vector<BoxInfo>& currentBoxes,
                            const std::vector<std::vector<int>>& adjacency) {
-      if (rank != 0) {
+      if (!writeVisibilityGraph || rank != 0) {
         return;
       }
       static int graphFileCounter = 0;

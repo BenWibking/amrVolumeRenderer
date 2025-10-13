@@ -26,6 +26,7 @@ MPI_Group BuildVisibilityOrderedGroup(
     int rank,
     int numProcs,
     bool useVisibilityGraph,
+    bool writeVisibilityGraph,
     const std::vector<minigraphics::volume::AmrBox>& localBoxes,
     MPI_Comm communicator);
 

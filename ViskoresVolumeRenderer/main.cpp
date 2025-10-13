@@ -15,8 +15,10 @@
 #include <vector>
 
 #include <viskores/Math.h>
+#include <viskores/Matrix.h>
 #include <viskores/Types.h>
 #include <viskores/VectorAnalysis.h>
+#include <viskores/rendering/MatrixHelpers.h>
 
 #include "ViskoresVolumeRenderer.hpp"
 
@@ -34,6 +36,7 @@
 namespace {
 
 using Vec3 = viskores::Vec3f_32;
+using Matrix4x4 = viskores::Matrix<viskores::Float32, 4, 4>;
 using viskores::Id;
 using minigraphics::volume::CameraParameters;
 using minigraphics::volume::VolumeBounds;
@@ -55,6 +58,255 @@ Vec3 componentMax(const Vec3& a, const Vec3& b) {
   return result;
 }
 
+Matrix4x4 makePerspectiveMatrix(float fovYDegrees,
+                                float aspect,
+                                float nearPlane,
+                                float farPlane) {
+  Matrix4x4 matrix;
+  viskores::MatrixIdentity(matrix);
+
+  const float fovTangent =
+      viskores::Tan(fovYDegrees * viskores::Pi_180f() * 0.5f);
+  const float size = nearPlane * fovTangent;
+  const float left = -size * aspect;
+  const float right = size * aspect;
+  const float bottom = -size;
+  const float top = size;
+
+  matrix(0, 0) = 2.0f * nearPlane / (right - left);
+  matrix(1, 1) = 2.0f * nearPlane / (top - bottom);
+  matrix(0, 2) = (right + left) / (right - left);
+  matrix(1, 2) = (top + bottom) / (top - bottom);
+  matrix(2, 2) = -(farPlane + nearPlane) / (farPlane - nearPlane);
+  matrix(3, 2) = -1.0f;
+  matrix(2, 3) = -(2.0f * farPlane * nearPlane) / (farPlane - nearPlane);
+  matrix(3, 3) = 0.0f;
+
+  return matrix;
+}
+
+void clearDepthHints(ImageRGBAFloatColorDepthSort& image, float depth) {
+  const int totalPixels = image.getNumberOfPixels();
+  for (int pixelIndex = 0; pixelIndex < totalPixels; ++pixelIndex) {
+    image.setDepthHint(pixelIndex, depth);
+  }
+}
+
+void renderBoundingBoxLayer(const VolumeBounds& bounds,
+                            const CameraParameters& camera,
+                            int sqrtAntialiasing,
+                            ImageRGBAFloatColorDepthSort& layer) {
+  const int width = layer.getWidth();
+  const int height = layer.getHeight();
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  const float aspect =
+      static_cast<float>(width) / static_cast<float>(std::max(height, 1));
+
+  const Matrix4x4 view = viskores::rendering::MatrixHelpers::ViewMatrix(
+      camera.eye, camera.lookAt, camera.up);
+  const Matrix4x4 projection =
+      makePerspectiveMatrix(camera.fovYDegrees,
+                            aspect,
+                            camera.nearPlane,
+                            camera.farPlane);
+
+  Vec3 forward = camera.lookAt - camera.eye;
+  const float forwardLength = viskores::Magnitude(forward);
+  if (forwardLength > 0.0f) {
+    forward = forward / forwardLength;
+  } else {
+    forward = Vec3(0.0f, 0.0f, -1.0f);
+  }
+
+  struct ScreenCorner {
+    Vec3 world = Vec3(0.0f);
+    float x = 0.0f;
+    float y = 0.0f;
+    float depth = std::numeric_limits<float>::infinity();
+    bool valid = false;
+  };
+
+  std::array<ScreenCorner, 8> projectedCorners;
+
+  const float widthScale =
+      (width > 1) ? static_cast<float>(width - 1) : 0.0f;
+  const float heightScale =
+      (height > 1) ? static_cast<float>(height - 1) : 0.0f;
+
+  for (int index = 0; index < 8; ++index) {
+    Vec3 corner((index & 1) ? bounds.maxCorner[0] : bounds.minCorner[0],
+                (index & 2) ? bounds.maxCorner[1] : bounds.minCorner[1],
+                (index & 4) ? bounds.maxCorner[2] : bounds.minCorner[2]);
+
+    const viskores::Vec4f_32 homogeneousCorner(corner[0],
+                                               corner[1],
+                                               corner[2],
+                                               1.0f);
+    const viskores::Vec4f_32 viewSpace =
+        viskores::MatrixMultiply(view, homogeneousCorner);
+    const viskores::Vec4f_32 clipSpace =
+        viskores::MatrixMultiply(projection, viewSpace);
+    const float w = clipSpace[3];
+    ScreenCorner projected;
+    projected.world = corner;
+
+    if (w <= 0.0f || !std::isfinite(w)) {
+      projectedCorners[static_cast<std::size_t>(index)] = projected;
+      continue;
+    }
+
+    const float invW = 1.0f / w;
+    const float ndcX = clipSpace[0] * invW;
+    const float ndcY = clipSpace[1] * invW;
+    const float ndcZ = clipSpace[2] * invW;
+
+    if (!std::isfinite(ndcX) || !std::isfinite(ndcY) ||
+        !std::isfinite(ndcZ)) {
+      projectedCorners[static_cast<std::size_t>(index)] = projected;
+      continue;
+    }
+
+    projected.x = (ndcX * 0.5f + 0.5f) * widthScale;
+    projected.y = (ndcY * 0.5f + 0.5f) * heightScale;
+    projected.depth = viskores::Dot(corner - camera.eye, forward);
+    if (!std::isfinite(projected.depth)) {
+      projected.depth = camera.farPlane;
+    }
+    projected.valid = true;
+    projectedCorners[static_cast<std::size_t>(index)] = projected;
+  }
+
+  constexpr std::array<std::pair<int, int>, 12> edges = {
+      std::pair<int, int>{0, 1}, std::pair<int, int>{1, 3},
+      std::pair<int, int>{3, 2}, std::pair<int, int>{2, 0},
+      std::pair<int, int>{4, 5}, std::pair<int, int>{5, 7},
+      std::pair<int, int>{7, 6}, std::pair<int, int>{6, 4},
+      std::pair<int, int>{0, 4}, std::pair<int, int>{1, 5},
+      std::pair<int, int>{2, 6}, std::pair<int, int>{3, 7}};
+
+  const Color baseLineColor(1.0f, 1.0f, 1.0f, 1.0f);
+
+  const auto blendSample = [&](int pixelX,
+                               int pixelY,
+                               float coverage,
+                               float depth) {
+    if (pixelX < 0 || pixelX >= width || pixelY < 0 || pixelY >= height) {
+      return;
+    }
+
+    const float clampedCoverage =
+        std::clamp(coverage, 0.0f, 1.0f);
+    if (clampedCoverage <= 0.0f) {
+      return;
+    }
+
+    const int pixelIndex = layer.pixelIndex(pixelX, pixelY);
+    auto* buffer = layer.getColorBuffer(pixelIndex);
+
+    const float srcAlpha = clampedCoverage;
+    const float srcRed = baseLineColor.Components[0] * srcAlpha;
+    const float srcGreen = baseLineColor.Components[1] * srcAlpha;
+    const float srcBlue = baseLineColor.Components[2] * srcAlpha;
+
+    buffer[0] = srcRed + buffer[0] * (1.0f - srcAlpha);
+    buffer[1] = srcGreen + buffer[1] * (1.0f - srcAlpha);
+    buffer[2] = srcBlue + buffer[2] * (1.0f - srcAlpha);
+    buffer[3] = srcAlpha + buffer[3] * (1.0f - srcAlpha);
+    buffer[4] = std::min(buffer[4], depth);
+  };
+
+  const auto lerp = [](float v0, float v1, float t) {
+    return v0 + (v1 - v0) * t;
+  };
+
+  const float pixelRadius =
+      0.5f * static_cast<float>(std::max(sqrtAntialiasing, 1));
+  const float influenceRadius = pixelRadius + 0.5f;
+
+  for (const auto& edge : edges) {
+    const ScreenCorner& start =
+        projectedCorners[static_cast<std::size_t>(edge.first)];
+    const ScreenCorner& end =
+        projectedCorners[static_cast<std::size_t>(edge.second)];
+    if (!start.valid || !end.valid) {
+      continue;
+    }
+
+    const float minX =
+        std::min(start.x, end.x) - influenceRadius;
+    const float maxX =
+        std::max(start.x, end.x) + influenceRadius;
+    const float minY =
+        std::min(start.y, end.y) - influenceRadius;
+    const float maxY =
+        std::max(start.y, end.y) + influenceRadius;
+
+    const int xBegin = std::max(
+        0, static_cast<int>(std::floor(minX)));
+    const int xEnd = std::min(
+        width - 1, static_cast<int>(std::ceil(maxX)));
+    const int yBegin = std::max(
+        0, static_cast<int>(std::floor(minY)));
+    const int yEnd = std::min(
+        height - 1, static_cast<int>(std::ceil(maxY)));
+
+    const float edgeDx = end.x - start.x;
+    const float edgeDy = end.y - start.y;
+    const float edgeLenSquared = edgeDx * edgeDx + edgeDy * edgeDy;
+    if (!(edgeLenSquared > 0.0f)) {
+      const float depth = std::min(start.depth, end.depth);
+      blendSample(static_cast<int>(std::lround(start.x)),
+                  static_cast<int>(std::lround(start.y)),
+                  1.0f,
+                  depth);
+      continue;
+    }
+
+    for (int py = yBegin; py <= yEnd; ++py) {
+      const float sampleY = static_cast<float>(py) + 0.5f;
+      for (int px = xBegin; px <= xEnd; ++px) {
+        const float sampleX = static_cast<float>(px) + 0.5f;
+
+        const float apx = sampleX - start.x;
+        const float apy = sampleY - start.y;
+        float t = 0.0f;
+        if (edgeLenSquared > 0.0f) {
+          t = (apx * edgeDx + apy * edgeDy) / edgeLenSquared;
+        }
+        t = std::clamp(t, 0.0f, 1.0f);
+
+        const float closestX = lerp(start.x, end.x, t);
+        const float closestY = lerp(start.y, end.y, t);
+        const float distX = sampleX - closestX;
+        const float distY = sampleY - closestY;
+        const float distance =
+            std::sqrt(distX * distX + distY * distY);
+
+        const float coverage =
+            std::clamp(pixelRadius + 0.5f - distance, 0.0f, 1.0f);
+        if (coverage <= 0.0f) {
+          continue;
+        }
+
+        Vec3 worldPoint =
+            start.world + (end.world - start.world) * t;
+        float depth = viskores::Dot(worldPoint - camera.eye, forward);
+        if (!std::isfinite(depth)) {
+          depth = lerp(start.depth, end.depth, t);
+        }
+        if (!std::isfinite(depth)) {
+          depth = camera.farPlane;
+        }
+
+        blendSample(px, py, coverage, depth);
+      }
+    }
+  }
+}
+
 struct ParsedOptions {
   ViskoresVolumeRenderer::RenderParameters parameters;
   std::string outputFilename = "viskores-volume-trial.ppm";
@@ -74,6 +326,7 @@ void printUsage() {
                "graph (default)\n"
             << "  --no-visibility-graph  Disable topological ordering using a "
                "visibility graph\n"
+            << "  --write-visibility-graph  Export visibility graph DOT files (default: disabled)\n"
             << "  --output FILE    Output filename (default: viskores-volume-trial.ppm)\n"
             << "  -h, --help       Show this help message\n";
 }
@@ -121,6 +374,8 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
       parsed.parameters.useVisibilityGraph = true;
     } else if (arg == "--no-visibility-graph") {
       parsed.parameters.useVisibilityGraph = false;
+    } else if (arg == "--write-visibility-graph") {
+      parsed.parameters.writeVisibilityGraph = true;
     } else if (arg == "--output") {
       parsed.outputFilename = requireValue(arg);
       if (parsed.outputFilename.empty()) {
@@ -527,6 +782,7 @@ MPI_Group ViskoresVolumeRenderer::buildVisibilityOrderedGroup(
     float aspect,
     MPI_Group baseGroup,
     bool useVisibilityGraph,
+    bool writeVisibilityGraph,
     const std::vector<AmrBox>& localBoxes) const {
   return BuildVisibilityOrderedGroup(camera,
                                      aspect,
@@ -534,6 +790,7 @@ MPI_Group ViskoresVolumeRenderer::buildVisibilityOrderedGroup(
                                      rank,
                                      numProcs,
                                      useVisibilityGraph,
+                                     writeVisibilityGraph,
                                      localBoxes,
                                      MPI_COMM_WORLD);
 }
@@ -572,6 +829,7 @@ int ViskoresVolumeRenderer::renderScene(
   }
 
   const float fovY = viskores::Pif() * 0.25f;
+  const float maxAltitude = viskores::Pif() * 0.25f;
 
   for (int trial = 0; trial < parameters.trials; ++trial) {
     const float cameraDistance =
@@ -579,13 +837,18 @@ int ViskoresVolumeRenderer::renderScene(
 
     std::mt19937 trialRng(parameters.cameraSeed +
                           static_cast<unsigned int>(trial));
-    std::uniform_real_distribution<float> angleDistribution(
+    std::uniform_real_distribution<float> azimuthDistribution(
         0.0f, viskores::TwoPif());
-    const float angle = angleDistribution(trialRng);
+    std::uniform_real_distribution<float> altitudeDistribution(
+        -maxAltitude, maxAltitude);
+    const float azimuth = azimuthDistribution(trialRng);
+    const float altitude = altitudeDistribution(trialRng);
+    const float cosAltitude = std::cos(altitude);
 
-    const Vec3 eye(center[0] + cameraDistance * std::sin(angle),
-                   center[1] + cameraDistance * 0.35f,
-                   center[2] + cameraDistance * std::cos(angle));
+    const Vec3 eye(
+        center[0] + cameraDistance * cosAltitude * std::sin(azimuth),
+        center[1] + cameraDistance * std::sin(altitude),
+        center[2] + cameraDistance * cosAltitude * std::cos(azimuth));
 
     const float nearPlane = 0.1f;
     const float farPlane = cameraDistance * 4.0f;
@@ -705,6 +968,22 @@ int ViskoresVolumeRenderer::renderSingleTrial(
     localLayers.push_back(std::move(layerImage));
   }
 
+  auto boundingBoxLayer =
+      std::make_unique<ImageRGBAFloatColorDepthSort>(renderWidth,
+                                                     renderHeight);
+  boundingBoxLayer->clear();
+  clearDepthHints(*boundingBoxLayer,
+                  std::numeric_limits<float>::infinity());
+  renderBoundingBoxLayer(bounds,
+                         camera,
+                         sqrtAntialiasing,
+                         *boundingBoxLayer);
+  AmrBox boundsBox;
+  boundsBox.minCorner = bounds.minCorner;
+  boundsBox.maxCorner = bounds.maxCorner;
+  depthHints.push_back(computeBoxDepthHint(boundsBox, camera));
+  localLayers.push_back(std::move(boundingBoxLayer));
+
   auto prototype =
       std::make_unique<ImageRGBAFloatColorDepthSort>(renderWidth,
                                                      renderHeight);
@@ -720,6 +999,7 @@ int ViskoresVolumeRenderer::renderSingleTrial(
                                   aspect,
                                   baseGroup,
                                   parameters.useVisibilityGraph,
+                                  parameters.writeVisibilityGraph,
                                   geometry.localBoxes);
 
   std::unique_ptr<Image> compositedImage =

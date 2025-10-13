@@ -38,6 +38,7 @@ class ViskoresVolumeRenderer {
     float boxTransparency = 0.0f;
     int antialiasing = 1;
     bool useVisibilityGraph = true;
+    bool writeVisibilityGraph = false;
     unsigned int cameraSeed = 91021u;
   };
 
@@ -92,6 +93,7 @@ class ViskoresVolumeRenderer {
                                         float aspect,
                                         MPI_Group baseGroup,
                                         bool useVisibilityGraph,
+                                        bool writeVisibilityGraph,
                                         const std::vector<AmrBox>& localBoxes) const;
   int renderSingleTrial(const std::string& outputFilename,
                         const RenderParameters& parameters,
