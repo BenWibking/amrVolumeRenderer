@@ -79,7 +79,8 @@ class ViskoresVolumeRenderer {
   void initialize() const;
   SceneGeometry loadPlotFileGeometry(const std::string& plotfilePath,
                                      const std::string& variableName,
-                                     int requestedMaxLevel) const;
+                                     int requestedMaxLevel,
+                                     bool logScaleInput) const;
   VolumeBounds computeGlobalBounds(const std::vector<AmrBox>& boxes,
                                    bool hasExplicitBounds,
                                    const VolumeBounds& explicitBounds) const;

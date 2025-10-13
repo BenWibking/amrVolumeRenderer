@@ -317,6 +317,7 @@ struct ParsedOptions {
   std::string plotfilePath;
   std::string variableName;
   int maxLevel = -1;
+  bool logScaleInput = false;
   bool exitEarly = false;
 };
 
@@ -335,6 +336,7 @@ void printUsage() {
             << "  --write-visibility-graph  Export visibility graph DOT files (default: disabled)\n"
             << "  --variable NAME  Scalar variable to render (default: first variable in plotfile)\n"
             << "  --max-level L    Finest AMR level to include (default: plotfile finest level)\n"
+            << "  --log-scale      Apply natural log scaling before normalizing the input field\n"
             << "  --output FILE    Output filename (default: viskores-volume-trial.ppm)\n"
             << "  -h, --help       Show this help message\n";
 }
@@ -399,6 +401,8 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
       if (parsed.maxLevel < 0) {
         throw std::runtime_error("max level must be non-negative");
       }
+    } else if (arg == "--log-scale") {
+      parsed.logScaleInput = true;
     } else if (arg == "--plotfile") {
       parsed.plotfilePath = requireValue(arg);
     } else if (arg == "--help" || arg == "-h") {
@@ -565,7 +569,8 @@ void ViskoresVolumeRenderer::initialize() const {
 auto ViskoresVolumeRenderer::loadPlotFileGeometry(
     const std::string& plotfilePath,
     const std::string& variableName,
-    int requestedMaxLevel) const -> SceneGeometry {
+    int requestedMaxLevel,
+    bool logScaleInput) const -> SceneGeometry {
   if (plotfilePath.empty()) {
     throw std::invalid_argument("Plotfile path must not be empty.");
   }
@@ -615,6 +620,8 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
   float localScalarMin = std::numeric_limits<float>::infinity();
   float localScalarMax = -std::numeric_limits<float>::infinity();
   bool hasLocalScalars = false;
+  float localPositiveMin = std::numeric_limits<float>::infinity();
+  bool hasLocalPositive = false;
 
   const amrex::Array<amrex::Real, AMREX_SPACEDIM> probLo = plotfile.probLo();
 
@@ -713,6 +720,10 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
             if (!std::isfinite(value)) {
               value = 0.0f;
             } else {
+              if (logScaleInput && value > 0.0f) {
+                localPositiveMin = std::min(localPositiveMin, value);
+                hasLocalPositive = true;
+              }
               localScalarMin = std::min(localScalarMin, value);
               localScalarMax = std::max(localScalarMax, value);
               hasLocalScalars = true;
@@ -868,6 +879,56 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
   scene.explicitBounds.maxCorner = globalMax + padding;
   scene.hasExplicitBounds = true;
 
+  if (logScaleInput) {
+    float positiveMinSend =
+        hasLocalPositive ? localPositiveMin
+                         : std::numeric_limits<float>::infinity();
+    float globalPositiveMin = positiveMinSend;
+    MPI_Allreduce(&positiveMinSend,
+                  &globalPositiveMin,
+                  1,
+                  MPI_FLOAT,
+                  MPI_MIN,
+                  MPI_COMM_WORLD);
+
+    int localPositiveCount = hasLocalPositive ? 1 : 0;
+    int globalPositiveCount = 0;
+    MPI_Allreduce(&localPositiveCount,
+                  &globalPositiveCount,
+                  1,
+                  MPI_INT,
+                  MPI_SUM,
+                  MPI_COMM_WORLD);
+
+    if (globalPositiveCount <= 0 || !std::isfinite(globalPositiveMin) ||
+        !(globalPositiveMin > 0.0f)) {
+      throw std::runtime_error(
+          "Log scaling requested but no positive scalar values were found.");
+    }
+
+    localScalarMin = std::numeric_limits<float>::infinity();
+    localScalarMax = -std::numeric_limits<float>::infinity();
+    hasLocalScalars = false;
+
+    for (auto& box : scene.localBoxes) {
+      for (float& value : box.cellValues) {
+        float sanitized = value;
+        if (!std::isfinite(sanitized) || !(sanitized > 0.0f)) {
+          sanitized = globalPositiveMin;
+        } else if (sanitized < globalPositiveMin) {
+          sanitized = globalPositiveMin;
+        }
+        const float logValue = std::log(sanitized);
+        value = logValue;
+        if (std::isfinite(logValue)) {
+          localScalarMin = std::min(localScalarMin, logValue);
+          localScalarMax = std::max(localScalarMax, logValue);
+          hasLocalScalars = true;
+        }
+      }
+    }
+  }
+
   float scalarMinSend =
       hasLocalScalars ? localScalarMin : std::numeric_limits<float>::infinity();
   float scalarMaxSend =
@@ -926,7 +987,11 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
   if (rank == 0) {
     std::cout << "Loaded plotfile '" << plotfilePath << "' with variable '"
               << componentName << "' across " << convexified.size()
-              << " level(s); normalized scalar range [0, 1]" << std::endl;
+              << " level(s); normalized scalar range [0, 1]";
+    if (logScaleInput) {
+      std::cout << " (log scaled)";
+    }
+    std::cout << std::endl;
   }
 
   return scene;
@@ -1448,7 +1513,8 @@ int ViskoresVolumeRenderer::run(int argc, char** argv) {
 
   SceneGeometry geometry = loadPlotFileGeometry(options.plotfilePath,
                                                 options.variableName,
-                                                options.maxLevel);
+                                                options.maxLevel,
+                                                options.logScaleInput);
   return renderScene(options.outputFilename,
                      options.parameters,
                      geometry);
