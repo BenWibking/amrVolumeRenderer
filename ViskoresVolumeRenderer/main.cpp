@@ -316,6 +316,7 @@ struct ParsedOptions {
   std::string outputFilename = "viskores-volume-trial.ppm";
   std::string plotfilePath;
   std::string variableName;
+  int minLevel = 0;
   int maxLevel = -1;
   bool logScaleInput = false;
   bool exitEarly = false;
@@ -336,6 +337,7 @@ void printUsage() {
             << "  --write-visibility-graph  Export visibility graph DOT files (default: disabled)\n"
             << "  --variable NAME  Scalar variable to render (default: first variable in plotfile)\n"
             << "  --max-level L    Finest AMR level to include (default: plotfile finest level)\n"
+            << "  --min-level L    Coarsest AMR level to include (default: 0)\n"
             << "  --log-scale      Apply natural log scaling before normalizing the input field\n"
             << "  --output FILE    Output filename (default: viskores-volume-trial.ppm)\n"
             << "  -h, --help       Show this help message\n";
@@ -396,6 +398,11 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
       if (parsed.variableName.empty()) {
         throw std::runtime_error("variable name must not be empty");
       }
+    } else if (arg == "--min-level") {
+      parsed.minLevel = std::stoi(requireValue(arg));
+      if (parsed.minLevel < 0) {
+        throw std::runtime_error("min level must be non-negative");
+      }
     } else if (arg == "--max-level") {
       parsed.maxLevel = std::stoi(requireValue(arg));
       if (parsed.maxLevel < 0) {
@@ -429,6 +436,9 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
 
   if (parsed.plotfilePath.empty()) {
     throw std::runtime_error("plotfile path is required");
+  }
+  if (parsed.maxLevel >= 0 && parsed.minLevel > parsed.maxLevel) {
+    throw std::runtime_error("min level must not exceed max level");
   }
 
   return parsed;
@@ -569,6 +579,7 @@ void ViskoresVolumeRenderer::initialize() const {
 auto ViskoresVolumeRenderer::loadPlotFileGeometry(
     const std::string& plotfilePath,
     const std::string& variableName,
+    int requestedMinLevel,
     int requestedMaxLevel,
     bool logScaleInput) const -> SceneGeometry {
   if (plotfilePath.empty()) {
@@ -605,9 +616,22 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
   }
 
   const int finestLevel = plotfile.finestLevel();
+  int minLevel = requestedMinLevel;
+  if (minLevel < 0) {
+    minLevel = 0;
+  }
+  if (minLevel > finestLevel) {
+    minLevel = finestLevel;
+  }
   int maxLevel = requestedMaxLevel;
   if (maxLevel < 0 || maxLevel > finestLevel) {
     maxLevel = finestLevel;
+  }
+  if (minLevel > maxLevel) {
+    std::ostringstream message;
+    message << "Minimum AMR level " << minLevel
+            << " exceeds available maximum level " << maxLevel << ".";
+    throw std::runtime_error(message.str());
   }
 
   SceneGeometry scene;
@@ -657,6 +681,9 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
 
     amrex::MultiFab& mf = convexified[level];
     if (mf.size() == 0) {
+      continue;
+    }
+    if (level < minLevel) {
       continue;
     }
 
@@ -985,9 +1012,14 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
   scene.localBoxes.shrink_to_fit();
 
   if (rank == 0) {
+    const int includedLevels = maxLevel - minLevel + 1;
     std::cout << "Loaded plotfile '" << plotfilePath << "' with variable '"
-              << componentName << "' across " << convexified.size()
-              << " level(s); normalized scalar range [0, 1]";
+              << componentName << "' across " << includedLevels
+              << " level(s)";
+    if (minLevel > 0 || maxLevel < finestLevel) {
+      std::cout << " (levels " << minLevel << "-" << maxLevel << ")";
+    }
+    std::cout << "; normalized scalar range [0, 1]";
     if (logScaleInput) {
       std::cout << " (log scaled)";
     }
@@ -1248,8 +1280,14 @@ int ViskoresVolumeRenderer::renderScene(
   const float maxAltitude = viskores::Pif() * 0.25f;
 
   for (int trial = 0; trial < parameters.trials; ++trial) {
-    const float cameraDistance =
-        boundingRadius / std::tan(fovY * 0.5f) + boundingRadius * 1.5f;
+    const float halfFov = fovY * 0.5f;
+    const float minDistance =
+        (halfFov > 0.0f)
+            ? boundingRadius / static_cast<float>(std::tan(halfFov))
+            : boundingRadius;
+    const float safetyMargin =
+        std::max(0.25f * boundingRadius, 0.5f);
+    const float cameraDistance = minDistance + safetyMargin;
 
     std::mt19937 trialRng(parameters.cameraSeed +
                           static_cast<unsigned int>(trial));
@@ -1513,6 +1551,7 @@ int ViskoresVolumeRenderer::run(int argc, char** argv) {
 
   SceneGeometry geometry = loadPlotFileGeometry(options.plotfilePath,
                                                 options.variableName,
+                                                options.minLevel,
                                                 options.maxLevel,
                                                 options.logScaleInput);
   return renderScene(options.outputFilename,

@@ -148,11 +148,6 @@ void VolumePainterViskores::paint(
 
     this->canvasToImage(localCanvas, image);
 
-    if (rank == 0) {
-      std::cout << "VolumePainterViskores: Rendered volume with "
-                << "per-box AMR data across " << numProcs << " ranks"
-                << std::endl;
-    }
   } catch (const std::exception& error) {
     std::cerr << "VolumePainterViskores error on rank " << rank << ": "
               << error.what() << std::endl;
