@@ -12,7 +12,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <iostream>
 #include <limits>
 #include <memory>
 #include <numeric>
@@ -98,9 +97,6 @@ static void PostReceives(
           getRealRank(sendGroup, sendGroupIndex, communicator);
       std::unique_ptr<Image> recvImageBuffer =
           localImage->createNew(rangeBegin, rangeEnd);
-      std::cout << "[DirectSend] Rank " << localRank << " receiving image "
-                << "region [" << rangeBegin << ", " << rangeEnd << ") from "
-                << "rank " << sourceRank << std::endl;
       std::vector<MPI_Request> newRequests = recvImageBuffer->IReceive(
           sourceRank, communicator);
       requestsOut.insert(
@@ -152,9 +148,6 @@ static void PostSends(
           localImage->window(rangeBegin, rangeEnd);
       int destRank =
           getRealRank(recvGroup, recvGroupIndex, communicator);
-      std::cout << "[DirectSend] Rank " << localRank << " sending image "
-                << "region [" << rangeBegin << ", " << rangeEnd << ") to "
-                << "rank " << destRank << std::endl;
       std::vector<MPI_Request> newRequests = outImage->ISend(
           destRank, communicator);
       requestsOut.insert(
