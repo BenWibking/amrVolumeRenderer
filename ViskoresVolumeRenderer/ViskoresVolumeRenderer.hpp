@@ -96,6 +96,7 @@ class ViskoresVolumeRenderer {
              const std::pair<float, float>& scalarRange,
              float boxTransparency,
              int antialiasing,
+             float referenceSampleDistance,
              ImageFull& image,
              const CameraParameters& camera);
   Compositor* getCompositor();

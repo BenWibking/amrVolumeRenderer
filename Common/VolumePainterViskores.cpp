@@ -75,12 +75,11 @@ void VolumePainterViskores::paint(
     int numProcs,
     float boxTransparency,
     int antialiasing,
+    float referenceSampleDistance,
     ImageFull& image,
     const minigraphics::volume::CameraParameters& camera) {
   try {
     viskores::cont::DataSet dataset = this->boxToDataSet(box);
-    viskores::cont::ColorTable colorTable =
-        this->buildColorTable(1.0f - boxTransparency, scalarRange);
 
     const Vec3 span = box.maxCorner - box.minCorner;
     Vec3 spacing(0.0f);
@@ -112,15 +111,29 @@ void VolumePainterViskores::paint(
       minSpacing = std::max(1e-4f, fallbackMin * 0.01f);
     }
 
+    const float sampleDistance =
+        std::max(minSpacing * 0.5f, 1e-5f);
+    float referenceDistance = referenceSampleDistance;
+    if (!(referenceDistance > 0.0f &&
+          std::isfinite(referenceDistance))) {
+      referenceDistance = sampleDistance;
+    }
+    float normalizationFactor = sampleDistance / referenceDistance;
+    if (!(std::isfinite(normalizationFactor))) {
+      normalizationFactor = 1.0f;
+    }
+    normalizationFactor = std::max(normalizationFactor, 0.0f);
+
+    viskores::cont::ColorTable colorTable =
+        this->buildColorTable(1.0f - boxTransparency,
+                              normalizationFactor,
+                              scalarRange);
+
     viskores::rendering::CanvasRayTracer localCanvas(image.getWidth(),
                                                      image.getHeight());
     viskores::rendering::MapperVolume localMapper;
-    const int sqrtAntialiasingInt =
-        static_cast<int>(std::lround(std::sqrt(static_cast<double>(std::max(antialiasing, 1)))));
-    const float sqrtAntialiasing =
-        static_cast<float>(std::max(sqrtAntialiasingInt, 1));
-    localMapper.SetSampleDistance(
-        minSpacing * 0.5f / std::max(sqrtAntialiasing, 1.0f));
+    localMapper.SetSampleDistance(sampleDistance);
+    static_cast<void>(antialiasing);  // Supersampling is handled in screen space.
     localMapper.SetCompositeBackground(false);
     localMapper.SetActiveColorTable(colorTable);
 
@@ -208,8 +221,14 @@ viskores::cont::DataSet VolumePainterViskores::boxToDataSet(
 
 viskores::cont::ColorTable VolumePainterViskores::buildColorTable(
     float alphaScale,
+    float normalizationFactor,
     const std::pair<float, float>& scalarRange) const {
   const float clampedScale = std::clamp(alphaScale, 0.0f, 1.0f);
+  float clampedFactor = normalizationFactor;
+  if (!(std::isfinite(clampedFactor))) {
+    clampedFactor = 1.0f;
+  }
+  clampedFactor = std::max(clampedFactor, 0.0f);
   const double rangeMin = static_cast<double>(scalarRange.first);
   const double rangeMax = static_cast<double>(scalarRange.second);
   viskores::cont::ColorTable colorTable(
@@ -222,8 +241,24 @@ viskores::cont::ColorTable VolumePainterViskores::buildColorTable(
       0.05f, 0.15f, 0.22f, 0.3f, 0.38f, 0.5f};
 
   for (std::size_t i = 0; i < positions.size(); ++i) {
-    const float scaledAlpha =
+    const float baseAlpha =
         std::clamp(alphaValues[i] * clampedScale, 0.0f, 1.0f);
+    float scaledAlpha = 0.0f;
+    if (clampedFactor <= 0.0f || baseAlpha <= 0.0f) {
+      scaledAlpha = 0.0f;
+    } else if (baseAlpha >= 1.0f) {
+      scaledAlpha = 1.0f;
+    } else {
+      const double transmittance =
+          std::pow(1.0 - static_cast<double>(baseAlpha),
+                   static_cast<double>(clampedFactor));
+      scaledAlpha =
+          static_cast<float>(1.0 - transmittance);
+      if (!std::isfinite(scaledAlpha)) {
+        scaledAlpha = baseAlpha;
+      }
+    }
+    scaledAlpha = std::clamp(scaledAlpha, 0.0f, 1.0f);
     const double position =
         static_cast<double>(positions[i]) * (rangeMax - rangeMin) + rangeMin;
     colorTable.AddPointAlpha(position, scaledAlpha);

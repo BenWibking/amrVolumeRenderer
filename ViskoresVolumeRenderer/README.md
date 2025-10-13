@@ -84,6 +84,7 @@ to generate an orbiting view for each trial automatically.
 - Global bounds are computed with MPI reductions to keep camera framing consistent across ranks.
 - Every AMR brick is converted to a dedicated uniform dataset so its native cell spacing drives the ray-marching step size, even when boxes differ in resolution.
 - Brick constant values flow through a jet color map with a shared scalar range, so assigning a distinct scalar per box yields distinct colors automatically.
-- An `antialiasing` supersampling factor (1, 4, 9, …) controls the ray-march sample spacing, allowing higher-quality renders at the cost of more work.
+- An `antialiasing` supersampling factor (1, 4, 9, …) controls screen-space supersampling; the ray-march step size now follows the native AMR spacing and brightness stays consistent across levels.
+- Opacity samples are normalized by the ray step so AMR refinement does not change the apparent density of a feature.
 - The camera animates around the volume for each trial to illustrate how the composited result changes with view direction.
 - Camera state (eye, aim point, up vector, FOV, and clipping range) is computed explicitly per trial and passed straight to Viskores, avoiding any OpenGL matrix conversions.

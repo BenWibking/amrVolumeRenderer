@@ -1220,6 +1220,7 @@ void ViskoresVolumeRenderer::paint(const AmrBox& box,
                                    const std::pair<float, float>& scalarRange,
                                    float boxTransparency,
                                    int antialiasing,
+                                   float referenceSampleDistance,
                                    ImageFull& image,
                                    const CameraParameters& camera) {
   static VolumePainterViskores painter;
@@ -1230,6 +1231,7 @@ void ViskoresVolumeRenderer::paint(const AmrBox& box,
                 numProcs,
                 boxTransparency,
                 antialiasing,
+                referenceSampleDistance,
                 image,
                 camera);
 }
@@ -1426,6 +1428,67 @@ int ViskoresVolumeRenderer::renderSingleTrial(
   const int renderHeight =
       parameters.height * std::max(sqrtAntialiasing, 1);
 
+  float localCoarsestMinSpacing = 0.0f;
+  for (const AmrBox& box : geometry.localBoxes) {
+    const viskores::Vec3f_32 span = box.maxCorner - box.minCorner;
+    viskores::Vec3f_32 spacing(0.0f);
+    if (box.cellDimensions[0] > 0) {
+      spacing[0] =
+          span[0] / static_cast<float>(box.cellDimensions[0]);
+    }
+    if (box.cellDimensions[1] > 0) {
+      spacing[1] =
+          span[1] / static_cast<float>(box.cellDimensions[1]);
+    }
+    if (box.cellDimensions[2] > 0) {
+      spacing[2] =
+          span[2] / static_cast<float>(box.cellDimensions[2]);
+    }
+
+    float minSpacing = std::numeric_limits<float>::max();
+    for (int component = 0; component < 3; ++component) {
+      if (spacing[component] > 0.0f &&
+          spacing[component] < minSpacing &&
+          std::isfinite(spacing[component])) {
+        minSpacing = spacing[component];
+      }
+    }
+
+    if (minSpacing > 0.0f && std::isfinite(minSpacing)) {
+      localCoarsestMinSpacing =
+          std::max(localCoarsestMinSpacing, minSpacing);
+    }
+  }
+
+  float globalCoarsestMinSpacing = 0.0f;
+  MPI_Allreduce(&localCoarsestMinSpacing,
+                &globalCoarsestMinSpacing,
+                1,
+                MPI_FLOAT,
+                MPI_MAX,
+                MPI_COMM_WORLD);
+
+  if (!(globalCoarsestMinSpacing > 0.0f &&
+        std::isfinite(globalCoarsestMinSpacing))) {
+    const viskores::Vec3f_32 fallbackSpan =
+        bounds.maxCorner - bounds.minCorner;
+    float fallbackMin = std::numeric_limits<float>::max();
+    for (int component = 0; component < 3; ++component) {
+      const float axisLength = fallbackSpan[component];
+      if (axisLength > 0.0f && std::isfinite(axisLength)) {
+        fallbackMin = std::min(fallbackMin, axisLength);
+      }
+    }
+    if (!(fallbackMin > 0.0f && std::isfinite(fallbackMin))) {
+      fallbackMin = 1.0f;
+    }
+    globalCoarsestMinSpacing =
+        std::max(1e-4f, fallbackMin * 0.01f);
+  }
+
+  const float referenceSampleDistance =
+      std::max(globalCoarsestMinSpacing * 0.5f, 1e-5f);
+
   const VolumeBounds tightBounds =
       computeTightBounds(geometry.localBoxes, bounds);
 
@@ -1446,6 +1509,7 @@ int ViskoresVolumeRenderer::renderSingleTrial(
           scalarRange,
           parameters.boxTransparency,
           parameters.antialiasing,
+          referenceSampleDistance,
           *layerImage,
           camera);
     depthHints.push_back(computeBoxDepthHint(box, camera));
