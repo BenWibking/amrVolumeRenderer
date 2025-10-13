@@ -2,15 +2,12 @@
 #define VISKORES_VOLUME_RENDERER_HPP
 
 #include <miniGraphicsConfig.h>
+#include <mpi.h>
+#include <viskores/Types.h>
 
 #include <Common/Compositor.hpp>
 #include <Common/ImageFull.hpp>
 #include <Common/VolumeTypes.hpp>
-
-#include <viskores/Types.h>
-
-#include <mpi.h>
-
 #include <string>
 #include <utility>
 #include <vector>
@@ -52,6 +49,17 @@ class ViskoresVolumeRenderer {
     bool hasScalarRange = false;
   };
 
+  struct RunOptions {
+    RenderParameters parameters;
+    std::string outputFilename = "viskores-volume-trial.ppm";
+    std::string plotfilePath;
+    std::string variableName;
+    int minLevel = 0;
+    int maxLevel = -1;
+    bool logScaleInput = false;
+    bool exitEarly = false;
+  };
+
   /// \brief Render the provided scene geometry using the configured compositor.
   ///
   /// \param outputFilenameBase Base name used when saving rendered images.
@@ -75,6 +83,9 @@ class ViskoresVolumeRenderer {
                   const RenderParameters& parameters,
                   const SceneGeometry& geometry,
                   const CameraParameters& camera);
+
+  /// \brief Execute the miniapp using pre-parsed run options.
+  int run(const RunOptions& options);
 
  private:
   void validateRenderParameters(const RenderParameters& parameters) const;
@@ -100,12 +111,13 @@ class ViskoresVolumeRenderer {
              ImageFull& image,
              const CameraParameters& camera);
   Compositor* getCompositor();
-  MPI_Group buildVisibilityOrderedGroup(const CameraParameters& camera,
-                                        float aspect,
-                                        MPI_Group baseGroup,
-                                        bool useVisibilityGraph,
-                                        bool writeVisibilityGraph,
-                                        const std::vector<AmrBox>& localBoxes) const;
+  MPI_Group buildVisibilityOrderedGroup(
+      const CameraParameters& camera,
+      float aspect,
+      MPI_Group baseGroup,
+      bool useVisibilityGraph,
+      bool writeVisibilityGraph,
+      const std::vector<AmrBox>& localBoxes) const;
   int renderSingleTrial(const std::string& outputFilename,
                         const RenderParameters& parameters,
                         const SceneGeometry& geometry,
@@ -118,7 +130,6 @@ class ViskoresVolumeRenderer {
 
   int rank;
   int numProcs;
-
 };
 
 #endif  // VISKORES_VOLUME_RENDERER_HPP

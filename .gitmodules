@@ -1,3 +1,6 @@
 [submodule "AMReX"]
 	path = AMReX
 	url = https://github.com/AMReX-Codes/amrex.git
+[submodule "nanobind"]
+	path = nanobind
+	url = https://github.com/wjakob/nanobind.git

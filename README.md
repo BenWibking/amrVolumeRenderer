@@ -36,6 +36,45 @@ mpirun -np 4 build/bin/DirectSendBase --width=256 --height=256
 The executable accepts additional options for image dimensions and scene
 selection; inspect `--help` for details.
 
+## Python Bindings
+
+miniGraphics ships a `nanobind`-based Python extension that mirrors the
+command-line options of `ViskoresVolumeRenderer`. Configure as usual and the
+build will additionally emit the module `miniGraphics_ext` alongside a thin
+package wrapper under `python/`.
+
+Before configuring, ensure the `nanobind` submodule dependencies are present:
+
+```sh
+git submodule update --init --recursive
+```
+
+Render directly from Python (launch under `mpirun` for multi-rank runs):
+
+```python
+from miniGraphics import render
+
+render(
+    "plt0010",
+    width=512,
+    height=512,
+    trials=2,
+    box_transparency=0.15,
+    antialiasing=4,
+    visibility_graph=True,
+    write_visibility_graph=False,
+    min_level=0,
+    max_level=-1,
+    log_scale=False,
+    up_vector=(0.0, 1.0, 0.0),
+    output="volume.ppm",
+)
+```
+
+All keyword arguments map 1:1 to the CLI flags and fall back to the same
+defaults when omitted. The binding automatically initializes MPI/AMReX on-demand
+and finalizes them when it set them up.
+
 ## Test
 
 Enable testing during configuration (see Build) and run the regression suite:

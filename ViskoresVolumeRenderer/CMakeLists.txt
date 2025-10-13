@@ -40,6 +40,7 @@ if(Viskores_FOUND)
 
   miniGraphics_executable(ViskoresVolumeRenderer
     SOURCES
+      ViskoresVolumeRenderer.cpp
       main.cpp
       ../Common/VolumePainterViskores.cpp
       ../Common/VisibilityOrdering.cpp
