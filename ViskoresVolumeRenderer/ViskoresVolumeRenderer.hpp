@@ -40,6 +40,8 @@ class ViskoresVolumeRenderer {
     bool useVisibilityGraph = true;
     bool writeVisibilityGraph = false;
     unsigned int cameraSeed = 91021u;
+    viskores::Vec3f_32 cameraUp = viskores::Vec3f_32(0.0f, 1.0f, 0.0f);
+    bool useCustomUp = false;
   };
 
   struct SceneGeometry {

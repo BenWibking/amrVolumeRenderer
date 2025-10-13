@@ -338,6 +338,7 @@ void printUsage() {
             << "  --variable NAME  Scalar variable to render (default: first variable in plotfile)\n"
             << "  --max-level L    Finest AMR level to include (default: plotfile finest level)\n"
             << "  --min-level L    Coarsest AMR level to include (default: 0)\n"
+            << "  --up-vector X Y Z  Camera up vector components (default: 0 1 0)\n"
             << "  --log-scale      Apply natural log scaling before normalizing the input field\n"
             << "  --output FILE    Output filename (default: viskores-volume-trial.ppm)\n"
             << "  -h, --help       Show this help message\n";
@@ -410,6 +411,20 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
       }
     } else if (arg == "--log-scale") {
       parsed.logScaleInput = true;
+    } else if (arg == "--up-vector") {
+      if (i + 3 >= argc) {
+        throw std::runtime_error("--up-vector requires three components");
+      }
+      const float x = std::stof(argv[++i]);
+      const float y = std::stof(argv[++i]);
+      const float z = std::stof(argv[++i]);
+      Vec3 upVector(x, y, z);
+      const float length = viskores::Magnitude(upVector);
+      if (!(length > 0.0f) || !std::isfinite(length)) {
+        throw std::runtime_error("--up-vector must be non-zero and finite");
+      }
+      parsed.parameters.cameraUp = upVector / length;
+      parsed.parameters.useCustomUp = true;
     } else if (arg == "--plotfile") {
       parsed.plotfilePath = requireValue(arg);
     } else if (arg == "--help" || arg == "-h") {
@@ -1304,12 +1319,23 @@ int ViskoresVolumeRenderer::renderScene(
         center[1] + cameraDistance * std::sin(altitude),
         center[2] + cameraDistance * cosAltitude * std::cos(azimuth));
 
+    Vec3 upVector = parameters.useCustomUp ? parameters.cameraUp
+                                           : Vec3(0.0f, 1.0f, 0.0f);
+    const Vec3 viewDir = viskores::Normal(center - eye);
+    if (viskores::Magnitude(viskores::Cross(viewDir, upVector)) <= 1e-4f) {
+      upVector = Vec3(0.0f, 0.0f, 1.0f);
+      if (viskores::Magnitude(viskores::Cross(viewDir, upVector)) <= 1e-4f) {
+        upVector = Vec3(1.0f, 0.0f, 0.0f);
+      }
+    }
+    upVector = viskores::Normal(upVector);
+
     const float nearPlane = 0.1f;
     const float farPlane = cameraDistance * 4.0f;
     CameraParameters camera{
         eye,
         center,
-        Vec3(0.0f, 1.0f, 0.0f),
+        upVector,
         fovY * 180.0f / viskores::Pif(),
         nearPlane,
         farPlane};
