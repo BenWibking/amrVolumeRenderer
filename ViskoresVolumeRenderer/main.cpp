@@ -722,6 +722,71 @@ ViskoresVolumeRenderer::VolumeBounds ViskoresVolumeRenderer::computeGlobalBounds
   return bounds;
 }
 
+ViskoresVolumeRenderer::VolumeBounds ViskoresVolumeRenderer::computeTightBounds(
+    const std::vector<AmrBox>& boxes,
+    const VolumeBounds& fallback) const {
+  Vec3 localMin(std::numeric_limits<float>::max());
+  Vec3 localMax(-std::numeric_limits<float>::max());
+  bool hasLocalBoxes = false;
+
+  for (const auto& box : boxes) {
+    localMin = componentMin(localMin, box.minCorner);
+    localMax = componentMax(localMax, box.maxCorner);
+    hasLocalBoxes = true;
+  }
+
+  if (!hasLocalBoxes) {
+    localMin = Vec3(std::numeric_limits<float>::max());
+    localMax = Vec3(-std::numeric_limits<float>::max());
+  }
+
+  std::array<float, 3> localMinArray = {localMin[0], localMin[1], localMin[2]};
+  std::array<float, 3> localMaxArray = {localMax[0], localMax[1], localMax[2]};
+  std::array<float, 3> globalMinArray = {
+      std::numeric_limits<float>::max(),
+      std::numeric_limits<float>::max(),
+      std::numeric_limits<float>::max()};
+  std::array<float, 3> globalMaxArray = {
+      -std::numeric_limits<float>::max(),
+      -std::numeric_limits<float>::max(),
+      -std::numeric_limits<float>::max()};
+
+  MPI_Allreduce(localMinArray.data(),
+                globalMinArray.data(),
+                3,
+                MPI_FLOAT,
+                MPI_MIN,
+                MPI_COMM_WORLD);
+  MPI_Allreduce(localMaxArray.data(),
+                globalMaxArray.data(),
+                3,
+                MPI_FLOAT,
+                MPI_MAX,
+                MPI_COMM_WORLD);
+
+  int localHasAny = hasLocalBoxes ? 1 : 0;
+  int globalHasAny = 0;
+  MPI_Allreduce(&localHasAny,
+                &globalHasAny,
+                1,
+                MPI_INT,
+                MPI_SUM,
+                MPI_COMM_WORLD);
+
+  if (globalHasAny <= 0) {
+    return fallback;
+  }
+
+  VolumeBounds tight;
+  tight.minCorner = Vec3(globalMinArray[0],
+                         globalMinArray[1],
+                         globalMinArray[2]);
+  tight.maxCorner = Vec3(globalMaxArray[0],
+                         globalMaxArray[1],
+                         globalMaxArray[2]);
+  return tight;
+}
+
 std::pair<float, float> ViskoresVolumeRenderer::computeGlobalScalarRange(
     const std::vector<AmrBox>& boxes) const {
   float localMin = std::numeric_limits<float>::infinity();
@@ -930,11 +995,11 @@ int ViskoresVolumeRenderer::renderSingleTrial(
     const std::string& outputFilename,
     const RenderParameters& parameters,
     const SceneGeometry& geometry,
-    const VolumeBounds& bounds,
-    const std::pair<float, float>& scalarRange,
-    Compositor* compositor,
-    MPI_Group baseGroup,
-    const CameraParameters& camera,
+  const VolumeBounds& bounds,
+  const std::pair<float, float>& scalarRange,
+  Compositor* compositor,
+  MPI_Group baseGroup,
+  const CameraParameters& camera,
     int trialIndex) {
   const float aspect = static_cast<float>(parameters.width) /
                        static_cast<float>(parameters.height);
@@ -945,10 +1010,13 @@ int ViskoresVolumeRenderer::renderSingleTrial(
   const int renderHeight =
       parameters.height * std::max(sqrtAntialiasing, 1);
 
+  const VolumeBounds tightBounds =
+      computeTightBounds(geometry.localBoxes, bounds);
+
   std::vector<std::unique_ptr<ImageRGBAFloatColorDepthSort>> localLayers;
-  localLayers.reserve(geometry.localBoxes.size());
+  localLayers.reserve(geometry.localBoxes.size() + 1);
   std::vector<float> depthHints;
-  depthHints.reserve(geometry.localBoxes.size());
+  depthHints.reserve(geometry.localBoxes.size() + 1);
 
   for (std::size_t boxIndex = 0; boxIndex < geometry.localBoxes.size();
        ++boxIndex) {
@@ -974,13 +1042,13 @@ int ViskoresVolumeRenderer::renderSingleTrial(
   boundingBoxLayer->clear();
   clearDepthHints(*boundingBoxLayer,
                   std::numeric_limits<float>::infinity());
-  renderBoundingBoxLayer(bounds,
+  renderBoundingBoxLayer(tightBounds,
                          camera,
                          sqrtAntialiasing,
                          *boundingBoxLayer);
   AmrBox boundsBox;
-  boundsBox.minCorner = bounds.minCorner;
-  boundsBox.maxCorner = bounds.maxCorner;
+  boundsBox.minCorner = tightBounds.minCorner;
+  boundsBox.maxCorner = tightBounds.maxCorner;
   depthHints.push_back(computeBoxDepthHint(boundsBox, camera));
   localLayers.push_back(std::move(boundingBoxLayer));
 

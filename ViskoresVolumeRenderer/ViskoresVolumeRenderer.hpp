@@ -79,6 +79,8 @@ class ViskoresVolumeRenderer {
   VolumeBounds computeGlobalBounds(const std::vector<AmrBox>& boxes,
                                    bool hasExplicitBounds,
                                    const VolumeBounds& explicitBounds) const;
+  VolumeBounds computeTightBounds(const std::vector<AmrBox>& boxes,
+                                  const VolumeBounds& fallback) const;
   std::pair<float, float> computeGlobalScalarRange(
       const std::vector<AmrBox>& boxes) const;
   void paint(const AmrBox& box,
