@@ -18,7 +18,7 @@
 #include <viskores/Types.h>
 #include <viskores/VectorAnalysis.h>
 
-#include "ViskoresVolumeExample.hpp"
+#include "ViskoresVolumeRenderer.hpp"
 
 #include <DirectSend/Base/DirectSendBase.hpp>
 
@@ -55,13 +55,13 @@ Vec3 componentMax(const Vec3& a, const Vec3& b) {
 }
 
 struct ParsedOptions {
-  ViskoresVolumeExample::RenderParameters parameters;
+  ViskoresVolumeRenderer::RenderParameters parameters;
   std::string outputFilename = "viskores-volume-trial.ppm";
   bool exitEarly = false;
 };
 
 void printUsage() {
-  std::cout << "Usage: ViskoresVolumeExample [--width W] [--height H] "
+  std::cout << "Usage: ViskoresVolumeRenderer [--width W] [--height H] "
                "[--trials N] [--samples S] [--output FILE]\n"
             << "  --width W        Image width (default: 512)\n"
             << "  --height H       Image height (default: 512)\n"
@@ -182,14 +182,14 @@ float computeBoxDepthHint(const VolumeBox& box,
 
 }  // namespace
 
-ViskoresVolumeExample::ViskoresVolumeExample()
+ViskoresVolumeRenderer::ViskoresVolumeRenderer()
     : rank(0),
       numProcs(1) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
 }
 
-void ViskoresVolumeExample::validateRenderParameters(
+void ViskoresVolumeRenderer::validateRenderParameters(
     const RenderParameters& parameters) const {
   if (parameters.width <= 0 || parameters.height <= 0) {
     throw std::invalid_argument("image dimensions must be positive");
@@ -207,15 +207,15 @@ void ViskoresVolumeExample::validateRenderParameters(
   }
 }
 
-void ViskoresVolumeExample::initialize() const {
+void ViskoresVolumeRenderer::initialize() const {
   if (rank == 0) {
-    std::cout << "ViskoresVolumeExample: Using Viskores volume mapper on "
+    std::cout << "ViskoresVolumeRenderer: Using Viskores volume mapper on "
               << numProcs << " ranks" << std::endl;
   }
 }
 
-ViskoresVolumeExample::SceneGeometry
-ViskoresVolumeExample::createRankSpecificGeometry() const {
+ViskoresVolumeRenderer::SceneGeometry
+ViskoresVolumeRenderer::createRankSpecificGeometry() const {
   constexpr int boxesX = 2;
   constexpr int boxesY = 2;
   constexpr int boxesZ = 2;
@@ -331,7 +331,7 @@ ViskoresVolumeExample::createRankSpecificGeometry() const {
   return scene;
 }
 
-ViskoresVolumeExample::VolumeBounds ViskoresVolumeExample::computeGlobalBounds(
+ViskoresVolumeRenderer::VolumeBounds ViskoresVolumeRenderer::computeGlobalBounds(
     const std::vector<VolumeBox>& boxes,
     bool hasExplicitBounds,
     const VolumeBounds& explicitBounds) const {
@@ -406,7 +406,7 @@ ViskoresVolumeExample::VolumeBounds ViskoresVolumeExample::computeGlobalBounds(
   return bounds;
 }
 
-void ViskoresVolumeExample::paint(
+void ViskoresVolumeRenderer::paint(
     const std::vector<VolumeBox>& boxes,
     const VolumeBounds& bounds,
     int samplesPerAxis,
@@ -432,12 +432,12 @@ void ViskoresVolumeExample::paint(
       colorOverride);
 }
 
-Compositor* ViskoresVolumeExample::getCompositor() {
+Compositor* ViskoresVolumeRenderer::getCompositor() {
   static DirectSendBase compositor;
   return &compositor;
 }
 
-MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
+MPI_Group ViskoresVolumeRenderer::buildVisibilityOrderedGroup(
     const CameraParameters& camera,
     float aspect,
     MPI_Group baseGroup,
@@ -453,7 +453,7 @@ MPI_Group ViskoresVolumeExample::buildVisibilityOrderedGroup(
                                      MPI_COMM_WORLD);
 }
 
-int ViskoresVolumeExample::renderScene(
+int ViskoresVolumeRenderer::renderScene(
     const std::string& outputFilenameBase,
     const RenderParameters& parameters,
     const SceneGeometry& geometry) {
@@ -528,7 +528,7 @@ int ViskoresVolumeExample::renderScene(
   return 0;
 }
 
-int ViskoresVolumeExample::renderScene(
+int ViskoresVolumeRenderer::renderScene(
     const std::string& outputFilenameBase,
     const RenderParameters& parameters,
     const SceneGeometry& geometry,
@@ -572,7 +572,7 @@ int ViskoresVolumeExample::renderScene(
   return 0;
 }
 
-int ViskoresVolumeExample::renderSingleTrial(
+int ViskoresVolumeRenderer::renderSingleTrial(
     const std::string& outputFilename,
     const RenderParameters& parameters,
     const SceneGeometry& geometry,
@@ -688,7 +688,7 @@ int ViskoresVolumeExample::renderSingleTrial(
   return 0;
 }
 
-int ViskoresVolumeExample::run(int argc, char** argv) {
+int ViskoresVolumeRenderer::run(int argc, char** argv) {
   ParsedOptions options;
 
   try {
@@ -724,7 +724,7 @@ int main(int argc, char* argv[]) {
 
   int exitCode = 0;
   try {
-    ViskoresVolumeExample example;
+    ViskoresVolumeRenderer example;
     const int argcCopy = static_cast<int>(argvCopy.size());
     exitCode = example.run(argcCopy, argvCopy.data());
   } catch (const std::exception& error) {

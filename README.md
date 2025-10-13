@@ -52,7 +52,7 @@ image sizes to minimize runtime.
   * `DirectSend/` DirectSend compositor implementations and shared utilities.
     - `DirectSend/Base/` Primary compositing path used by the sample app.
   * `Common/` Shared rendering primitives, image buffers, and utilities.
-  * `ViskoresVolumeExample/` Example miniapp that drives the compositor with Viskores.
+  * `ViskoresVolumeRenderer/` Example miniapp that drives the compositor with Viskores.
   * `Reference/` Sample configurations and reference imagery.
   * `ThirdParty/` Vendored headers (GLM, IceT, optionparser).
   * `CMake/` Auxiliary build scripts and macros.

@@ -20,4 +20,4 @@ endif()
 # will significantly speed up when this file is included in subdirectories.
 include(CMake/miniGraphicsMacros.cmake)
 
-add_subdirectory(ViskoresVolumeExample)
+add_subdirectory(ViskoresVolumeRenderer)

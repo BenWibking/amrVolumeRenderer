@@ -1,4 +1,4 @@
-# Viskores Volume Example
+# Viskores Volume Renderer
 
 This miniapp demonstrates volumetric rendering with Viskores' `MapperVolume` combined with miniGraphics' lattice compositing pipeline.
 
@@ -14,13 +14,13 @@ The target builds only when Viskores is discoverable by CMake.
 
 ```bash
 cmake -S . -B build -DMINIGRAPHICS_ENABLE_VISKORES=ON -DViskores_DIR=/path/to/viskores
-cmake --build build --target ViskoresVolumeExample -j
+cmake --build build --target ViskoresVolumeRenderer -j
 ```
 
 ## Running
 
 ```bash
-mpirun -np 4 build/bin/ViskoresVolumeExample \
+mpirun -np 4 build/bin/ViskoresVolumeRenderer \
   --width 512 --height 512 --samples 96 --trials 3
 ```
 
@@ -40,22 +40,22 @@ Images are written on rank 0. When more than one trial is requested, each filena
 The rendering pipeline can be invoked programmatically. Provide a scene description (per-rank boxes plus optional explicit bounds), configure rendering parameters, and call `renderScene`:
 
 ```cpp
-#include "ViskoresVolumeExample.hpp"
+#include "ViskoresVolumeRenderer.hpp"
 
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
 
-  ViskoresVolumeExample example;
+  ViskoresVolumeRenderer example;
 
-  ViskoresVolumeExample::SceneGeometry geometry;
+  ViskoresVolumeRenderer::SceneGeometry geometry;
   geometry.localBoxes = /* rank-local boxes */;
   // Optionally set geometry.explicitBounds and geometry.hasExplicitBounds.
 
-  ViskoresVolumeExample::RenderParameters params;
+  ViskoresVolumeRenderer::RenderParameters params;
   params.width = 800;
   params.height = 600;
 
-  ViskoresVolumeExample::CameraParameters camera;
+  ViskoresVolumeRenderer::CameraParameters camera;
   camera.eye = {0.0f, 0.5f, 3.0f};
   camera.lookAt = {0.0f, 0.0f, 0.0f};
   camera.up = {0.0f, 1.0f, 0.0f};

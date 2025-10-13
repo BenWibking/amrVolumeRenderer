@@ -22,36 +22,36 @@ find_package(Viskores QUIET)
 
 if(NOT Viskores_FOUND AND _miniGraphicsRequireViskores)
   message(FATAL_ERROR "MINIGRAPHICS_ENABLE_VISKORES=ON but Viskores was not found. "
-                      "Provide Viskores via CMake package discovery to build ViskoresVolumeExample.")
+                      "Provide Viskores via CMake package discovery to build ViskoresVolumeRenderer.")
 endif()
 
 if(Viskores_FOUND)
-  message(STATUS "Building ViskoresVolumeExample with Viskores support")
+  message(STATUS "Building ViskoresVolumeRenderer with Viskores support")
 
-  miniGraphics_executable(ViskoresVolumeExample
+  miniGraphics_executable(ViskoresVolumeRenderer
     SOURCES
       main.cpp
       ../Common/VolumePainterViskores.cpp
       ../Common/VisibilityOrdering.cpp
       ../DirectSend/Base/DirectSendBase.cpp
     HEADERS
-      ViskoresVolumeExample.hpp
+      ViskoresVolumeRenderer.hpp
       ../DirectSend/Base/DirectSendBase.hpp
     )
 
   if(TARGET viskores::rendering)
-    target_link_libraries(ViskoresVolumeExample PRIVATE viskores::rendering)
+    target_link_libraries(ViskoresVolumeRenderer PRIVATE viskores::rendering)
   endif()
 
   if(DEFINED Viskores_INCLUDE_DIRS)
-    target_include_directories(ViskoresVolumeExample PRIVATE ${Viskores_INCLUDE_DIRS})
+    target_include_directories(ViskoresVolumeRenderer PRIVATE ${Viskores_INCLUDE_DIRS})
   endif()
 
   if(DEFINED Viskores_LIBRARIES)
-    target_link_libraries(ViskoresVolumeExample PRIVATE ${Viskores_LIBRARIES})
+    target_link_libraries(ViskoresVolumeRenderer PRIVATE ${Viskores_LIBRARIES})
   endif()
 
-  target_compile_definitions(ViskoresVolumeExample PRIVATE MINIGRAPHICS_ENABLE_VISKORES)
+  target_compile_definitions(ViskoresVolumeRenderer PRIVATE MINIGRAPHICS_ENABLE_VISKORES)
 else()
-  message(STATUS "Skipping ViskoresVolumeExample (Viskores not found)")
+  message(STATUS "Skipping ViskoresVolumeRenderer (Viskores not found)")
 endif()

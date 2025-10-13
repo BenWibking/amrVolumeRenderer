@@ -42,7 +42,7 @@ ctest
 **Project Structure:**
 - **Common/** Shared utilities (image classes, compositor base, YAML helpers, mesh handling)
 - **DirectSend/Base/** Direct-send compositor used by the sample application
-- **ViskoresVolumeExample/** Miniapp that drives the compositor using Viskores for volume rendering
+- **ViskoresVolumeRenderer/** Miniapp that drives the compositor using Viskores for volume rendering
 - **ThirdParty/** External dependencies (GLM, optionparser, IceT)
 - **Reference/** Sample imagery and configurations
 - **Utilites/** Small helper scripts

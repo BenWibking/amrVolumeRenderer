@@ -1,5 +1,5 @@
-#ifndef VISKORES_VOLUME_EXAMPLE_HPP
-#define VISKORES_VOLUME_EXAMPLE_HPP
+#ifndef VISKORES_VOLUME_RENDERER_HPP
+#define VISKORES_VOLUME_RENDERER_HPP
 
 #include <miniGraphicsConfig.h>
 
@@ -15,13 +15,13 @@
 #include <vector>
 
 #ifndef MINIGRAPHICS_ENABLE_VISKORES
-#error "ViskoresVolumeExample requires MINIGRAPHICS_ENABLE_VISKORES"
+#error "ViskoresVolumeRenderer requires MINIGRAPHICS_ENABLE_VISKORES"
 #endif
 
 /// \brief Miniapp that renders distributed volumetric data using Viskores.
-class ViskoresVolumeExample {
+class ViskoresVolumeRenderer {
  public:
-  ViskoresVolumeExample();
+  ViskoresVolumeRenderer();
 
   /// \brief Execute the miniapp entry point.
   int run(int argc, char** argv);
@@ -104,4 +104,4 @@ class ViskoresVolumeExample {
 
 };
 
-#endif  // VISKORES_VOLUME_EXAMPLE_HPP
+#endif  // VISKORES_VOLUME_RENDERER_HPP
