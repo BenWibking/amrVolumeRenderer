@@ -15,14 +15,16 @@
 
 #include <viskores/Types.h>
 
+#include <vector>
+
 namespace minigraphics {
 namespace volume {
 
-struct VolumeBox {
+struct AmrBox {
   viskores::Vec3f_32 minCorner;
   viskores::Vec3f_32 maxCorner;
-  float scalarValue;
-  viskores::Vec3f_32 color;
+  viskores::Id3 cellDimensions;
+  std::vector<float> cellValues;
 };
 
 struct VolumeBounds {

@@ -34,9 +34,10 @@
 namespace {
 
 using Vec3 = viskores::Vec3f_32;
+using viskores::Id;
 using minigraphics::volume::CameraParameters;
 using minigraphics::volume::VolumeBounds;
-using minigraphics::volume::VolumeBox;
+using minigraphics::volume::AmrBox;
 
 Vec3 componentMin(const Vec3& a, const Vec3& b) {
   Vec3 result;
@@ -62,11 +63,11 @@ struct ParsedOptions {
 
 void printUsage() {
   std::cout << "Usage: ViskoresVolumeRenderer [--width W] [--height H] "
-               "[--trials N] [--samples S] [--output FILE]\n"
+               "[--trials N] [--antialiasing A] [--output FILE]\n"
             << "  --width W        Image width (default: 512)\n"
             << "  --height H       Image height (default: 512)\n"
             << "  --trials N       Number of render trials (default: 1)\n"
-            << "  --samples S      Samples per axis for the volume (default: 64)\n"
+            << "  --antialiasing A Supersampling factor (positive integer square, default: 1)\n"
             << "  --box-transparency T  Transparency factor per box in [0,1] "
                "(default: 0)\n"
             << "  --visibility-graph  Enable topological ordering using a visibility "
@@ -104,17 +105,17 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
       if (parsed.parameters.trials <= 0) {
         throw std::runtime_error("number of trials must be positive");
       }
-    } else if (arg == "--samples") {
-      parsed.parameters.samplesPerAxis = std::stoi(requireValue(arg));
-      if (parsed.parameters.samplesPerAxis < 2) {
-        throw std::runtime_error("samples per axis must be at least 2");
-      }
     } else if (arg == "--box-transparency") {
       parsed.parameters.boxTransparency = std::stof(requireValue(arg));
       if (parsed.parameters.boxTransparency < 0.0f ||
           parsed.parameters.boxTransparency > 1.0f) {
         throw std::runtime_error(
             "box transparency must be between 0 and 1");
+      }
+    } else if (arg == "--antialiasing") {
+      parsed.parameters.antialiasing = std::stoi(requireValue(arg));
+      if (parsed.parameters.antialiasing <= 0) {
+        throw std::runtime_error("antialiasing must be positive");
       }
     } else if (arg == "--visibility-graph") {
       parsed.parameters.useVisibilityGraph = true;
@@ -156,6 +157,60 @@ std::string buildTrialFilename(const std::string& base,
   return base.substr(0, dot) + suffix + base.substr(dot);
 }
 
+std::unique_ptr<ImageFull> downsampleImage(const ImageFull& source,
+                                           int targetWidth,
+                                           int targetHeight,
+                                           int sqrtAA) {
+  const int blockSize = std::max(sqrtAA, 1);
+  if (blockSize <= 1) {
+    throw std::invalid_argument(
+        "downsampleImage expects sqrtAA > 1 for downsampling");
+  }
+
+  const auto* typedSource =
+      dynamic_cast<const ImageRGBAFloatColorDepthSort*>(&source);
+  if (typedSource == nullptr) {
+    throw std::runtime_error(
+        "downsampleImage expects ImageRGBAFloatColorDepthSort input.");
+  }
+
+  auto downsampled =
+      std::make_unique<ImageRGBAFloatColorDepthSort>(targetWidth,
+                                                     targetHeight);
+  const float invSamples =
+      1.0f / static_cast<float>(blockSize * blockSize);
+
+  for (int y = 0; y < targetHeight; ++y) {
+    for (int x = 0; x < targetWidth; ++x) {
+      float sumR = 0.0f;
+      float sumG = 0.0f;
+      float sumB = 0.0f;
+      float sumA = 0.0f;
+      for (int dy = 0; dy < blockSize; ++dy) {
+        const int srcY = y * blockSize + dy;
+        for (int dx = 0; dx < blockSize; ++dx) {
+          const int srcX = x * blockSize + dx;
+          const Color sample = typedSource->getColor(srcX, srcY);
+          sumR += sample.Components[0];
+          sumG += sample.Components[1];
+          sumB += sample.Components[2];
+          sumA += sample.Components[3];
+        }
+      }
+
+      Color averaged(sumR * invSamples,
+                     sumG * invSamples,
+                     sumB * invSamples,
+                     sumA * invSamples);
+      downsampled->setColor(x, y, averaged);
+      downsampled->setDepthHint(
+          x, y, std::numeric_limits<float>::infinity());
+    }
+  }
+
+  return downsampled;
+}
+
 struct MpiGroupGuard {
   MpiGroupGuard() : group(MPI_GROUP_NULL) {}
   ~MpiGroupGuard() {
@@ -167,7 +222,7 @@ struct MpiGroupGuard {
   MPI_Group group;
 };
 
-float computeBoxDepthHint(const VolumeBox& box,
+float computeBoxDepthHint(const AmrBox& box,
                           const CameraParameters& camera) {
   const Vec3 viewDir = viskores::Normal(camera.lookAt - camera.eye);
   float minDepth = std::numeric_limits<float>::infinity();
@@ -197,13 +252,18 @@ void ViskoresVolumeRenderer::validateRenderParameters(
   if (parameters.trials <= 0) {
     throw std::invalid_argument("number of trials must be positive");
   }
-  if (parameters.samplesPerAxis < 2) {
-    throw std::invalid_argument("samples per axis must be at least 2");
-  }
   if (parameters.boxTransparency < 0.0f ||
       parameters.boxTransparency > 1.0f) {
     throw std::invalid_argument(
         "box transparency must be between 0 and 1");
+  }
+  if (parameters.antialiasing <= 0) {
+    throw std::invalid_argument("antialiasing must be positive");
+  }
+  const int sqrtAA = static_cast<int>(std::lround(std::sqrt(parameters.antialiasing)));
+  if (sqrtAA * sqrtAA != parameters.antialiasing) {
+    throw std::invalid_argument(
+        "antialiasing must be a perfect square (1, 4, 9, ...)");
   }
 }
 
@@ -222,15 +282,6 @@ ViskoresVolumeRenderer::createRankSpecificGeometry() const {
   constexpr int totalBoxes = boxesX * boxesY * boxesZ;
   constexpr float boxScale = 0.8f;
   constexpr float spacing = boxScale;  // centers are one box width apart
-  const std::array<Vec3, 8> kPalette = {
-      Vec3(0.894f, 0.102f, 0.110f),  // red
-      Vec3(0.216f, 0.494f, 0.722f),  // blue
-      Vec3(0.302f, 0.686f, 0.290f),  // green
-      Vec3(0.596f, 0.306f, 0.639f),  // purple
-      Vec3(1.000f, 0.498f, 0.000f),  // orange
-      Vec3(1.000f, 0.929f, 0.435f),  // yellow
-      Vec3(0.651f, 0.337f, 0.157f),  // brown
-      Vec3(0.969f, 0.506f, 0.749f)};  // pink
 
   const int ranks = std::max(numProcs, 1);
   const int boxesPerRank = totalBoxes / ranks;
@@ -268,12 +319,22 @@ ViskoresVolumeRenderer::createRankSpecificGeometry() const {
                  (static_cast<float>(boxesZ) - 1.0f) * 0.5f) *
                 spacing;
 
-    VolumeBox box;
+    AmrBox box;
     box.minCorner = offset - halfExtent;
     box.maxCorner = offset + halfExtent;
-    box.scalarValue = (static_cast<float>(boxIndex) + 1.0f) /
-                      (static_cast<float>(totalBoxes) + 1.0f);
-    box.color = kPalette[static_cast<std::size_t>(boxIndex) % kPalette.size()];
+
+    const int refinementCycle = boxIndex % 3;
+    const Id baseResolution = 8;
+    const Id cellsPerAxis = baseResolution + static_cast<Id>(refinementCycle * 4);
+    box.cellDimensions =
+        viskores::Id3(cellsPerAxis, cellsPerAxis, cellsPerAxis);
+
+    const float cellValue = static_cast<float>(boxIndex);
+    const std::size_t valueCount =
+        static_cast<std::size_t>(box.cellDimensions[0]) *
+        static_cast<std::size_t>(box.cellDimensions[1]) *
+        static_cast<std::size_t>(box.cellDimensions[2]);
+    box.cellValues.assign(valueCount, cellValue);
 
     scene.localBoxes.push_back(box);
 
@@ -332,7 +393,7 @@ ViskoresVolumeRenderer::createRankSpecificGeometry() const {
 }
 
 ViskoresVolumeRenderer::VolumeBounds ViskoresVolumeRenderer::computeGlobalBounds(
-    const std::vector<VolumeBox>& boxes,
+    const std::vector<AmrBox>& boxes,
     bool hasExplicitBounds,
     const VolumeBounds& explicitBounds) const {
   if (hasExplicitBounds) {
@@ -406,30 +467,54 @@ ViskoresVolumeRenderer::VolumeBounds ViskoresVolumeRenderer::computeGlobalBounds
   return bounds;
 }
 
-void ViskoresVolumeRenderer::paint(
-    const std::vector<VolumeBox>& boxes,
-    const VolumeBounds& bounds,
-    int samplesPerAxis,
-    float boxTransparency,
-    ImageFull& image,
-    const CameraParameters& camera,
-    const Vec3* colorOverride) {
-  if (boxes.empty()) {
-    image.clear(Color(0.0f, 0.0f, 0.0f, 0.0f));
-    return;
+std::pair<float, float> ViskoresVolumeRenderer::computeGlobalScalarRange(
+    const std::vector<AmrBox>& boxes) const {
+  float localMin = std::numeric_limits<float>::infinity();
+  float localMax = -std::numeric_limits<float>::infinity();
+
+  for (const auto& box : boxes) {
+    if (!box.cellValues.empty()) {
+      const auto [minIt, maxIt] =
+          std::minmax_element(box.cellValues.begin(), box.cellValues.end());
+      localMin = std::min(localMin, *minIt);
+      localMax = std::max(localMax, *maxIt);
+    }
   }
 
+  if (!std::isfinite(localMin) || !std::isfinite(localMax)) {
+    localMin = 0.0f;
+    localMax = 0.0f;
+  }
+
+  float globalMin = 0.0f;
+  float globalMax = 0.0f;
+  MPI_Allreduce(&localMin, &globalMin, 1, MPI_FLOAT, MPI_MIN, MPI_COMM_WORLD);
+  MPI_Allreduce(&localMax, &globalMax, 1, MPI_FLOAT, MPI_MAX, MPI_COMM_WORLD);
+
+  if (globalMin == globalMax) {
+    globalMax = globalMin + 1.0f;
+  }
+
+  return {globalMin, globalMax};
+}
+
+void ViskoresVolumeRenderer::paint(const AmrBox& box,
+                                   const VolumeBounds& bounds,
+                                   const std::pair<float, float>& scalarRange,
+                                   float boxTransparency,
+                                   int antialiasing,
+                                   ImageFull& image,
+                                   const CameraParameters& camera) {
   static VolumePainterViskores painter;
-  painter.paint(
-      boxes,
-      bounds,
-      samplesPerAxis,
-      rank,
-      numProcs,
-      boxTransparency,
-      image,
-      camera,
-      colorOverride);
+  painter.paint(box,
+                bounds,
+                scalarRange,
+                rank,
+                numProcs,
+                boxTransparency,
+                antialiasing,
+                image,
+                camera);
 }
 
 Compositor* ViskoresVolumeRenderer::getCompositor() {
@@ -442,7 +527,7 @@ MPI_Group ViskoresVolumeRenderer::buildVisibilityOrderedGroup(
     float aspect,
     MPI_Group baseGroup,
     bool useVisibilityGraph,
-    const std::vector<VolumeBox>& localBoxes) const {
+    const std::vector<AmrBox>& localBoxes) const {
   return BuildVisibilityOrderedGroup(camera,
                                      aspect,
                                      baseGroup,
@@ -464,6 +549,8 @@ int ViskoresVolumeRenderer::renderScene(
       computeGlobalBounds(geometry.localBoxes,
                           geometry.hasExplicitBounds,
                           geometry.explicitBounds);
+  const std::pair<float, float> scalarRange =
+      computeGlobalScalarRange(geometry.localBoxes);
 
   Compositor* compositor = getCompositor();
   if (compositor == nullptr) {
@@ -516,6 +603,7 @@ int ViskoresVolumeRenderer::renderScene(
                                          parameters,
                                          geometry,
                                          bounds,
+                                         scalarRange,
                                          compositor,
                                          groupGuard.group,
                                          camera,
@@ -540,6 +628,8 @@ int ViskoresVolumeRenderer::renderScene(
       computeGlobalBounds(geometry.localBoxes,
                           geometry.hasExplicitBounds,
                           geometry.explicitBounds);
+  const std::pair<float, float> scalarRange =
+      computeGlobalScalarRange(geometry.localBoxes);
 
   Compositor* compositor = getCompositor();
   if (compositor == nullptr) {
@@ -560,6 +650,7 @@ int ViskoresVolumeRenderer::renderScene(
                                          parameters,
                                          geometry,
                                          bounds,
+                                         scalarRange,
                                          compositor,
                                          groupGuard.group,
                                          camera,
@@ -577,45 +668,49 @@ int ViskoresVolumeRenderer::renderSingleTrial(
     const RenderParameters& parameters,
     const SceneGeometry& geometry,
     const VolumeBounds& bounds,
+    const std::pair<float, float>& scalarRange,
     Compositor* compositor,
     MPI_Group baseGroup,
     const CameraParameters& camera,
     int trialIndex) {
   const float aspect = static_cast<float>(parameters.width) /
                        static_cast<float>(parameters.height);
+  const int sqrtAntialiasing =
+      static_cast<int>(std::lround(std::sqrt(parameters.antialiasing)));
+  const int renderWidth =
+      parameters.width * std::max(sqrtAntialiasing, 1);
+  const int renderHeight =
+      parameters.height * std::max(sqrtAntialiasing, 1);
 
   std::vector<std::unique_ptr<ImageRGBAFloatColorDepthSort>> localLayers;
   localLayers.reserve(geometry.localBoxes.size());
   std::vector<float> depthHints;
   depthHints.reserve(geometry.localBoxes.size());
 
-  std::vector<VolumeBox> singleBox(1);
-
   for (std::size_t boxIndex = 0; boxIndex < geometry.localBoxes.size();
        ++boxIndex) {
-    singleBox[0] = geometry.localBoxes[boxIndex];
+    const AmrBox& box = geometry.localBoxes[boxIndex];
 
     auto layerImage =
-        std::make_unique<ImageRGBAFloatColorDepthSort>(parameters.width,
-                                                       parameters.height);
-    paint(singleBox,
+        std::make_unique<ImageRGBAFloatColorDepthSort>(renderWidth,
+                                                       renderHeight);
+    paint(box,
           bounds,
-          parameters.samplesPerAxis,
+          scalarRange,
           parameters.boxTransparency,
+          parameters.antialiasing,
           *layerImage,
-          camera,
-          &geometry.localBoxes[boxIndex].color);
-    depthHints.push_back(computeBoxDepthHint(geometry.localBoxes[boxIndex],
-                                             camera));
+          camera);
+    depthHints.push_back(computeBoxDepthHint(box, camera));
     localLayers.push_back(std::move(layerImage));
   }
 
   auto prototype =
-      std::make_unique<ImageRGBAFloatColorDepthSort>(parameters.width,
-                                                     parameters.height);
+      std::make_unique<ImageRGBAFloatColorDepthSort>(renderWidth,
+                                                     renderHeight);
 
-  LayeredVolumeImage layeredImage(parameters.width,
-                                  parameters.height,
+  LayeredVolumeImage layeredImage(renderWidth,
+                                  renderHeight,
                                   std::move(localLayers),
                                   std::move(depthHints),
                                   std::move(prototype));
@@ -662,7 +757,18 @@ int ViskoresVolumeRenderer::renderSingleTrial(
                   << " pixels on rank 0" << std::endl;
       }
 
-      const bool saved = SavePPM(*gatheredImage, outputFilename);
+      std::unique_ptr<ImageFull> outputImage;
+      if (sqrtAntialiasing > 1) {
+        outputImage =
+            downsampleImage(*gatheredImage,
+                            parameters.width,
+                            parameters.height,
+                            sqrtAntialiasing);
+      } else {
+        outputImage = std::move(gatheredImage);
+      }
+
+      const bool saved = SavePPM(*outputImage, outputFilename);
       if (hasTrialInfo) {
         if (saved) {
           std::cout << "Saved trial " << trialIndex

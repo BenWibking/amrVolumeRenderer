@@ -26,7 +26,7 @@ MPI_Group BuildVisibilityOrderedGroup(
     int rank,
     int numProcs,
     bool useVisibilityGraph,
-    const std::vector<minigraphics::volume::VolumeBox>& localBoxes,
+    const std::vector<minigraphics::volume::AmrBox>& localBoxes,
     MPI_Comm communicator);
 
 #endif  // MINIGRAPHICS_ENABLE_VISKORES

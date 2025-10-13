@@ -71,7 +71,7 @@ MPI_Group BuildVisibilityOrderedGroup(
     int rank,
     int numProcs,
     bool useVisibilityGraph,
-    const std::vector<minigraphics::volume::VolumeBox>& localBoxes,
+    const std::vector<minigraphics::volume::AmrBox>& localBoxes,
     MPI_Comm communicator) {
   const Matrix4x4 modelview =
       viskores::rendering::MatrixHelpers::ViewMatrix(camera.eye,

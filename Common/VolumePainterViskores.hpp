@@ -21,39 +21,36 @@
 #include <viskores/rendering/Canvas.h>
 #include <viskores/rendering/View3D.h>
 
+#include <utility>
 #include <vector>
 
-/// \brief Renders volumetric `VolumeBox` data to an `ImageFull` using Viskores.
+/// \brief Renders volumetric AMR box data to an `ImageFull` using Viskores.
 class VolumePainterViskores {
  public:
   VolumePainterViskores();
   ~VolumePainterViskores();
 
-  void paint(const std::vector<minigraphics::volume::VolumeBox>& boxes,
+  void paint(const minigraphics::volume::AmrBox& box,
              const minigraphics::volume::VolumeBounds& bounds,
-             int samplesPerAxis,
+             const std::pair<float, float>& scalarRange,
              int rank,
              int numProcs,
              float boxTransparency,
+             int antialiasing,
              ImageFull& image,
-             const minigraphics::volume::CameraParameters& camera,
-             const viskores::Vec3f_32* colorOverride = nullptr);
+             const minigraphics::volume::CameraParameters& camera);
 
  private:
-  viskores::cont::DataSet boxesToDataSet(
-      const std::vector<minigraphics::volume::VolumeBox>& boxes,
-      const minigraphics::volume::VolumeBounds& bounds,
-      int samplesPerAxis) const;
+  viskores::cont::DataSet boxToDataSet(
+      const minigraphics::volume::AmrBox& box) const;
 
-  viskores::cont::ColorTable buildColorTable(int numProcs,
-                                             float alphaScale) const;
+  viskores::cont::ColorTable buildColorTable(float alphaScale) const;
 
   void setupCamera(viskores::rendering::View3D& view,
                    const minigraphics::volume::CameraParameters& camera);
 
   void canvasToImage(const viskores::rendering::Canvas& canvas,
-                     ImageFull& image,
-                     const viskores::Vec3f_32* colorOverride) const;
+                     ImageFull& image) const;
 };
 
 #endif  // MINIGRAPHICS_ENABLE_VISKORES

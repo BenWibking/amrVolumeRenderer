@@ -21,6 +21,7 @@
 #include <viskores/cont/ArrayHandle.h>
 #include <viskores/cont/DataSetBuilderUniform.h>
 #include <viskores/cont/Initialize.h>
+#include <viskores/Range.h>
 #include <viskores/rendering/Actor.h>
 #include <viskores/rendering/Camera.h>
 #include <viskores/rendering/CanvasRayTracer.h>
@@ -67,31 +68,59 @@ VolumePainterViskores::VolumePainterViskores() {
 VolumePainterViskores::~VolumePainterViskores() = default;
 
 void VolumePainterViskores::paint(
-    const std::vector<minigraphics::volume::VolumeBox>& boxes,
+    const minigraphics::volume::AmrBox& box,
     const minigraphics::volume::VolumeBounds& bounds,
-    int samplesPerAxis,
+    const std::pair<float, float>& scalarRange,
     int rank,
     int numProcs,
     float boxTransparency,
+    int antialiasing,
     ImageFull& image,
-    const minigraphics::volume::CameraParameters& camera,
-    const Vec3* colorOverride) {
+    const minigraphics::volume::CameraParameters& camera) {
   try {
-    viskores::cont::DataSet dataset =
-        this->boxesToDataSet(boxes, bounds, samplesPerAxis);
+    viskores::cont::DataSet dataset = this->boxToDataSet(box);
     viskores::cont::ColorTable colorTable =
-        this->buildColorTable(numProcs, 1.0f - boxTransparency);
+        this->buildColorTable(1.0f - boxTransparency);
 
-    const Vec3 span = bounds.maxCorner - bounds.minCorner;
-    const float minSpan = std::min({span[0], span[1], span[2]});
-    const float minSpacing =
-        std::max(1e-4f,
-                 minSpan / static_cast<float>(std::max(samplesPerAxis - 1, 1)));
+    const Vec3 span = box.maxCorner - box.minCorner;
+    Vec3 spacing(0.0f);
+    Vec3 fallbackSpan = bounds.maxCorner - bounds.minCorner;
+    if (box.cellDimensions[0] > 0) {
+      spacing[0] =
+          span[0] / static_cast<float>(box.cellDimensions[0]);
+    }
+    if (box.cellDimensions[1] > 0) {
+      spacing[1] =
+          span[1] / static_cast<float>(box.cellDimensions[1]);
+    }
+    if (box.cellDimensions[2] > 0) {
+      spacing[2] =
+          span[2] / static_cast<float>(box.cellDimensions[2]);
+    }
+
+    float minSpacing = std::numeric_limits<float>::max();
+    for (int component = 0; component < 3; ++component) {
+      if (spacing[component] > 0.0f &&
+          spacing[component] < minSpacing &&
+          std::isfinite(spacing[component])) {
+        minSpacing = spacing[component];
+      }
+    }
+    if (!(minSpacing > 0.0f && std::isfinite(minSpacing))) {
+      const float fallbackMin =
+          std::min({fallbackSpan[0], fallbackSpan[1], fallbackSpan[2]});
+      minSpacing = std::max(1e-4f, fallbackMin * 0.01f);
+    }
 
     viskores::rendering::CanvasRayTracer localCanvas(image.getWidth(),
                                                      image.getHeight());
     viskores::rendering::MapperVolume localMapper;
-    localMapper.SetSampleDistance(minSpacing * 0.5f);
+    const int sqrtAntialiasingInt =
+        static_cast<int>(std::lround(std::sqrt(static_cast<double>(std::max(antialiasing, 1)))));
+    const float sqrtAntialiasing =
+        static_cast<float>(std::max(sqrtAntialiasingInt, 1));
+    localMapper.SetSampleDistance(
+        minSpacing * 0.5f / std::max(sqrtAntialiasing, 1.0f));
     localMapper.SetCompositeBackground(false);
     localMapper.SetActiveColorTable(colorTable);
 
@@ -100,6 +129,8 @@ void VolumePainterViskores::paint(
                                      dataset.GetCoordinateSystem(),
                                      dataset.GetField(kDensityFieldName),
                                      colorTable);
+    actor.SetScalarRange(
+        viskores::Range(scalarRange.first, scalarRange.second));
     localScene.AddActor(actor);
 
     View3DNoColorBar localView(localScene,
@@ -115,12 +146,12 @@ void VolumePainterViskores::paint(
 
     localView.Paint();
 
-    this->canvasToImage(localCanvas, image, colorOverride);
+    this->canvasToImage(localCanvas, image);
 
     if (rank == 0) {
       std::cout << "VolumePainterViskores: Rendered volume with "
-                << samplesPerAxis << "^3 samples across " << numProcs
-                << " ranks" << std::endl;
+                << "per-box AMR data across " << numProcs << " ranks"
+                << std::endl;
     }
   } catch (const std::exception& error) {
     std::cerr << "VolumePainterViskores error on rank " << rank << ": "
@@ -129,87 +160,62 @@ void VolumePainterViskores::paint(
   }
 }
 
-viskores::cont::DataSet VolumePainterViskores::boxesToDataSet(
-    const std::vector<minigraphics::volume::VolumeBox>& boxes,
-    const minigraphics::volume::VolumeBounds& bounds,
-    int samplesPerAxis) const {
-  const Vec3 minCorner = bounds.minCorner;
-  const Vec3 maxCorner = bounds.maxCorner;
+viskores::cont::DataSet VolumePainterViskores::boxToDataSet(
+    const minigraphics::volume::AmrBox& box) const {
+  const Vec3 minCorner = box.minCorner;
+  const Vec3 maxCorner = box.maxCorner;
   const Vec3 span = maxCorner - minCorner;
+  const viskores::Id3 cellDims = box.cellDimensions;
+
+  if (cellDims[0] <= 0 || cellDims[1] <= 0 || cellDims[2] <= 0) {
+    throw std::invalid_argument(
+        "AMR box dimensions must be positive along every axis.");
+  }
+
+  const std::size_t expectedValueCount =
+      static_cast<std::size_t>(cellDims[0]) *
+      static_cast<std::size_t>(cellDims[1]) *
+      static_cast<std::size_t>(cellDims[2]);
+  if (box.cellValues.size() != expectedValueCount) {
+    std::ostringstream message;
+    message << "AMR box provided " << box.cellValues.size()
+            << " cell values but expected " << expectedValueCount;
+    throw std::invalid_argument(message.str());
+  }
 
   viskores::cont::DataSetBuilderUniform builder;
-  const viskores::Id3 dimensions(samplesPerAxis,
-                                 samplesPerAxis,
-                                 samplesPerAxis);
+  const viskores::Id3 pointDims(cellDims[0] + 1,
+                                cellDims[1] + 1,
+                                cellDims[2] + 1);
   const Vec3 origin(minCorner[0], minCorner[1], minCorner[2]);
 
-  const auto safeSpacing = [&](float component) -> float {
-    if (samplesPerAxis <= 1) {
+  const auto safeSpacing = [&](float component, viskores::Id cells) -> float {
+    if (cells <= 0) {
       return 1.0f;
     }
     const float length = std::max(component, 1e-5f);
-    return length / static_cast<float>(samplesPerAxis - 1);
+    return length / static_cast<float>(cells);
   };
 
-  const Vec3 spacing(safeSpacing(span[0]),
-                     safeSpacing(span[1]),
-                     safeSpacing(span[2]));
+  const Vec3 spacing(safeSpacing(span[0], cellDims[0]),
+                     safeSpacing(span[1], cellDims[1]),
+                     safeSpacing(span[2], cellDims[2]));
 
-  viskores::cont::DataSet dataset = builder.Create(dimensions, origin, spacing);
+  viskores::cont::DataSet dataset = builder.Create(pointDims, origin, spacing);
 
-  const std::size_t pointCount =
-      static_cast<std::size_t>(samplesPerAxis) *
-      static_cast<std::size_t>(samplesPerAxis) *
-      static_cast<std::size_t>(samplesPerAxis);
-
-  std::vector<viskores::Float32> pointScalars(pointCount, 0.0f);
-  for (int z = 0; z < samplesPerAxis; ++z) {
-    const float posZ =
-        minCorner[2] + static_cast<float>(z) * spacing[2];
-
-    for (int y = 0; y < samplesPerAxis; ++y) {
-      const float posY =
-          minCorner[1] + static_cast<float>(y) * spacing[1];
-
-      for (int x = 0; x < samplesPerAxis; ++x) {
-        const float posX =
-            minCorner[0] + static_cast<float>(x) * spacing[0];
-
-        float sampleValue = 0.0f;
-        for (const auto& box : boxes) {
-          const bool inside =
-              posX >= (box.minCorner[0] - 1e-4f) &&
-              posX <= (box.maxCorner[0] + 1e-4f) &&
-              posY >= (box.minCorner[1] - 1e-4f) &&
-              posY <= (box.maxCorner[1] + 1e-4f) &&
-              posZ >= (box.minCorner[2] - 1e-4f) &&
-              posZ <= (box.maxCorner[2] + 1e-4f);
-          if (inside) {
-            sampleValue = std::max(sampleValue, box.scalarValue);
-          }
-        }
-
-        const std::size_t linearIndex =
-            static_cast<std::size_t>(z) * samplesPerAxis * samplesPerAxis +
-            static_cast<std::size_t>(y) * samplesPerAxis +
-            static_cast<std::size_t>(x);
-        pointScalars[linearIndex] = sampleValue;
-      }
-    }
-  }
-
-  dataset.AddPointField(
+  dataset.AddCellField(
       kDensityFieldName,
-      viskores::cont::make_ArrayHandle(pointScalars, viskores::CopyFlag::On));
+      viskores::cont::make_ArrayHandle(box.cellValues,
+                                       viskores::CopyFlag::On));
 
   return dataset;
 }
 
 viskores::cont::ColorTable VolumePainterViskores::buildColorTable(
-    int numProcs, float alphaScale) const {
-  (void)numProcs;
+    float alphaScale) const {
   const float clampedScale = std::clamp(alphaScale, 0.0f, 1.0f);
-  viskores::cont::ColorTable colorTable("inferno");
+  viskores::cont::ColorTable colorTable(
+      viskores::cont::ColorTable::Preset::Jet);
 
   const std::array<float, 6> positions = {
       0.0f, 0.15f, 0.35f, 0.6f, 0.85f, 1.0f};
@@ -241,8 +247,7 @@ void VolumePainterViskores::setupCamera(
 
 void VolumePainterViskores::canvasToImage(
     const viskores::rendering::Canvas& viskoresCanvas,
-    ImageFull& image,
-    const Vec3* colorOverride) const {
+    ImageFull& image) const {
   auto* depthSortedImage =
       dynamic_cast<ImageRGBAFloatColorDepthSort*>(&image);
   if (depthSortedImage == nullptr) {
@@ -264,15 +269,9 @@ void VolumePainterViskores::canvasToImage(
       const int pixelIndex = y * width + x;
       const Vec4 color = colorPortal.Get(pixelIndex);
       const float alpha = clampUnit(static_cast<float>(color[3]));
-      float red = clampUnit(static_cast<float>(color[0]));
-      float green = clampUnit(static_cast<float>(color[1]));
-      float blue = clampUnit(static_cast<float>(color[2]));
-      if (colorOverride != nullptr) {
-        const float intensity = (red + green + blue) / 3.0f;
-        red = clampUnit(intensity * (*colorOverride)[0]);
-        green = clampUnit(intensity * (*colorOverride)[1]);
-        blue = clampUnit(intensity * (*colorOverride)[2]);
-      }
+      const float red = clampUnit(static_cast<float>(color[0]));
+      const float green = clampUnit(static_cast<float>(color[1]));
+      const float blue = clampUnit(static_cast<float>(color[2]));
       depthSortedImage->setColor(x, y, Color(red, green, blue, alpha));
       float depth = depthPortal.Get(pixelIndex);
       if (!std::isfinite(depth) || alpha <= 0.0f) {

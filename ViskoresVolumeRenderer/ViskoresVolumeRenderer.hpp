@@ -12,6 +12,7 @@
 #include <mpi.h>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifndef MINIGRAPHICS_ENABLE_VISKORES
@@ -26,7 +27,7 @@ class ViskoresVolumeRenderer {
   /// \brief Execute the miniapp entry point.
   int run(int argc, char** argv);
 
-  using VolumeBox = minigraphics::volume::VolumeBox;
+  using AmrBox = minigraphics::volume::AmrBox;
   using VolumeBounds = minigraphics::volume::VolumeBounds;
   using CameraParameters = minigraphics::volume::CameraParameters;
 
@@ -34,14 +35,14 @@ class ViskoresVolumeRenderer {
     int width = 512;
     int height = 512;
     int trials = 1;
-    int samplesPerAxis = 64;
     float boxTransparency = 0.0f;
+    int antialiasing = 1;
     bool useVisibilityGraph = true;
     unsigned int cameraSeed = 91021u;
   };
 
   struct SceneGeometry {
-    std::vector<VolumeBox> localBoxes;
+    std::vector<AmrBox> localBoxes;
     VolumeBounds explicitBounds;
     bool hasExplicitBounds = false;
   };
@@ -74,26 +75,29 @@ class ViskoresVolumeRenderer {
   void validateRenderParameters(const RenderParameters& parameters) const;
   void initialize() const;
   SceneGeometry createRankSpecificGeometry() const;
-  VolumeBounds computeGlobalBounds(const std::vector<VolumeBox>& boxes,
+  VolumeBounds computeGlobalBounds(const std::vector<AmrBox>& boxes,
                                    bool hasExplicitBounds,
                                    const VolumeBounds& explicitBounds) const;
-  void paint(const std::vector<VolumeBox>& boxes,
+  std::pair<float, float> computeGlobalScalarRange(
+      const std::vector<AmrBox>& boxes) const;
+  void paint(const AmrBox& box,
              const VolumeBounds& bounds,
-             int samplesPerAxis,
+             const std::pair<float, float>& scalarRange,
              float boxTransparency,
+             int antialiasing,
              ImageFull& image,
-             const CameraParameters& camera,
-             const viskores::Vec3f_32* colorOverride = nullptr);
+             const CameraParameters& camera);
   Compositor* getCompositor();
   MPI_Group buildVisibilityOrderedGroup(const CameraParameters& camera,
                                         float aspect,
                                         MPI_Group baseGroup,
                                         bool useVisibilityGraph,
-                                        const std::vector<VolumeBox>& localBoxes) const;
+                                        const std::vector<AmrBox>& localBoxes) const;
   int renderSingleTrial(const std::string& outputFilename,
                         const RenderParameters& parameters,
                         const SceneGeometry& geometry,
                         const VolumeBounds& bounds,
+                        const std::pair<float, float>& scalarRange,
                         Compositor* compositor,
                         MPI_Group baseGroup,
                         const CameraParameters& camera,
