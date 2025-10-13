@@ -46,6 +46,8 @@ class ViskoresVolumeRenderer {
     std::vector<AmrBox> localBoxes;
     VolumeBounds explicitBounds;
     bool hasExplicitBounds = false;
+    std::pair<float, float> scalarRange = {0.0f, 1.0f};
+    bool hasScalarRange = false;
   };
 
   /// \brief Render the provided scene geometry using the configured compositor.
@@ -75,7 +77,9 @@ class ViskoresVolumeRenderer {
  private:
   void validateRenderParameters(const RenderParameters& parameters) const;
   void initialize() const;
-  SceneGeometry createRankSpecificGeometry() const;
+  SceneGeometry loadPlotFileGeometry(const std::string& plotfilePath,
+                                     const std::string& variableName,
+                                     int requestedMaxLevel) const;
   VolumeBounds computeGlobalBounds(const std::vector<AmrBox>& boxes,
                                    bool hasExplicitBounds,
                                    const VolumeBounds& explicitBounds) const;

@@ -80,7 +80,7 @@ void VolumePainterViskores::paint(
   try {
     viskores::cont::DataSet dataset = this->boxToDataSet(box);
     viskores::cont::ColorTable colorTable =
-        this->buildColorTable(1.0f - boxTransparency);
+        this->buildColorTable(1.0f - boxTransparency, scalarRange);
 
     const Vec3 span = box.maxCorner - box.minCorner;
     Vec3 spacing(0.0f);
@@ -212,21 +212,28 @@ viskores::cont::DataSet VolumePainterViskores::boxToDataSet(
 }
 
 viskores::cont::ColorTable VolumePainterViskores::buildColorTable(
-    float alphaScale) const {
+    float alphaScale,
+    const std::pair<float, float>& scalarRange) const {
   const float clampedScale = std::clamp(alphaScale, 0.0f, 1.0f);
+  const double rangeMin = static_cast<double>(scalarRange.first);
+  const double rangeMax = static_cast<double>(scalarRange.second);
   viskores::cont::ColorTable colorTable(
       viskores::cont::ColorTable::Preset::Jet);
+  colorTable.ClearAlpha();
 
   const std::array<float, 6> positions = {
       0.0f, 0.15f, 0.35f, 0.6f, 0.85f, 1.0f};
   const std::array<float, 6> alphaValues = {
-      0.0f, 0.02f, 0.05f, 0.1f, 0.18f, 0.3f};
+      0.05f, 0.15f, 0.22f, 0.3f, 0.38f, 0.5f};
 
   for (std::size_t i = 0; i < positions.size(); ++i) {
     const float scaledAlpha =
         std::clamp(alphaValues[i] * clampedScale, 0.0f, 1.0f);
-    colorTable.AddPointAlpha(positions[i], scaledAlpha);
+    const double position =
+        static_cast<double>(positions[i]) * (rangeMax - rangeMin) + rangeMin;
+    colorTable.AddPointAlpha(position, scaledAlpha);
   }
+  colorTable.RescaleToRange(viskores::Range(rangeMin, rangeMax));
 
   return colorTable;
 }

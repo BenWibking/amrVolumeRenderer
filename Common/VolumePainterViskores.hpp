@@ -44,7 +44,9 @@ class VolumePainterViskores {
   viskores::cont::DataSet boxToDataSet(
       const minigraphics::volume::AmrBox& box) const;
 
-  viskores::cont::ColorTable buildColorTable(float alphaScale) const;
+  viskores::cont::ColorTable buildColorTable(
+      float alphaScale,
+      const std::pair<float, float>& scalarRange) const;
 
   void setupCamera(viskores::rendering::View3D& view,
                    const minigraphics::volume::CameraParameters& camera);

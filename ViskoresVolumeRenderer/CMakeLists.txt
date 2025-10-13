@@ -28,6 +28,16 @@ endif()
 if(Viskores_FOUND)
   message(STATUS "Building ViskoresVolumeRenderer with Viskores support")
 
+  set(AMReX_SPACEDIM 3 CACHE STRING "AMReX dimension" FORCE)
+  set(AMReX_MPI ON CACHE BOOL "Enable MPI in AMReX" FORCE)
+  set(AMReX_FORTRAN OFF CACHE BOOL "Disable AMReX Fortran interfaces" FORCE)
+  set(AMReX_OMP OFF CACHE BOOL "Disable AMReX OpenMP" FORCE)
+  set(AMReX_GPU_BACKEND "NONE" CACHE STRING "Disable AMReX GPU backends" FORCE)
+
+  if(NOT TARGET amrex)
+    add_subdirectory(${miniGraphics_SOURCE_DIR}/AMReX ${CMAKE_BINARY_DIR}/AMReX)
+  endif()
+
   miniGraphics_executable(ViskoresVolumeRenderer
     SOURCES
       main.cpp
@@ -51,6 +61,7 @@ if(Viskores_FOUND)
     target_link_libraries(ViskoresVolumeRenderer PRIVATE ${Viskores_LIBRARIES})
   endif()
 
+  target_link_libraries(ViskoresVolumeRenderer PRIVATE amrex)
   target_compile_definitions(ViskoresVolumeRenderer PRIVATE MINIGRAPHICS_ENABLE_VISKORES)
 else()
   message(STATUS "Skipping ViskoresVolumeRenderer (Viskores not found)")

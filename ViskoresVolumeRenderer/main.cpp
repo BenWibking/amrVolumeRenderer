@@ -14,6 +14,10 @@
 #include <utility>
 #include <vector>
 
+#include <AMReX.H>
+#include <AMReX_MultiFabUtil.H>
+#include <AMReX_PlotFileUtil.H>
+
 #include <viskores/Math.h>
 #include <viskores/Matrix.h>
 #include <viskores/Types.h>
@@ -310,12 +314,14 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
 struct ParsedOptions {
   ViskoresVolumeRenderer::RenderParameters parameters;
   std::string outputFilename = "viskores-volume-trial.ppm";
+  std::string plotfilePath;
+  std::string variableName;
+  int maxLevel = -1;
   bool exitEarly = false;
 };
 
 void printUsage() {
-  std::cout << "Usage: ViskoresVolumeRenderer [--width W] [--height H] "
-               "[--trials N] [--antialiasing A] [--output FILE]\n"
+  std::cout << "Usage: ViskoresVolumeRenderer [options] plotfile\n"
             << "  --width W        Image width (default: 512)\n"
             << "  --height H       Image height (default: 512)\n"
             << "  --trials N       Number of render trials (default: 1)\n"
@@ -327,6 +333,8 @@ void printUsage() {
             << "  --no-visibility-graph  Disable topological ordering using a "
                "visibility graph\n"
             << "  --write-visibility-graph  Export visibility graph DOT files (default: disabled)\n"
+            << "  --variable NAME  Scalar variable to render (default: first variable in plotfile)\n"
+            << "  --max-level L    Finest AMR level to include (default: plotfile finest level)\n"
             << "  --output FILE    Output filename (default: viskores-volume-trial.ppm)\n"
             << "  -h, --help       Show this help message\n";
 }
@@ -381,6 +389,18 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
       if (parsed.outputFilename.empty()) {
         throw std::runtime_error("output filename must not be empty");
       }
+    } else if (arg == "--variable") {
+      parsed.variableName = requireValue(arg);
+      if (parsed.variableName.empty()) {
+        throw std::runtime_error("variable name must not be empty");
+      }
+    } else if (arg == "--max-level") {
+      parsed.maxLevel = std::stoi(requireValue(arg));
+      if (parsed.maxLevel < 0) {
+        throw std::runtime_error("max level must be non-negative");
+      }
+    } else if (arg == "--plotfile") {
+      parsed.plotfilePath = requireValue(arg);
     } else if (arg == "--help" || arg == "-h") {
       if (rank == 0) {
         printUsage();
@@ -388,10 +408,23 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
       parsed.exitEarly = true;
       return parsed;
     } else {
-      std::ostringstream message;
-      message << "unknown option '" << arg << "'";
-      throw std::runtime_error(message.str());
+      if (!arg.empty() && arg[0] == '-') {
+        std::ostringstream message;
+        message << "unknown option '" << arg << "'";
+        throw std::runtime_error(message.str());
+      }
+      if (!parsed.plotfilePath.empty()) {
+        std::ostringstream message;
+        message << "multiple plot files specified ('" << parsed.plotfilePath
+                << "' and '" << arg << "')";
+        throw std::runtime_error(message.str());
+      }
+      parsed.plotfilePath = arg;
     }
+  }
+
+  if (parsed.plotfilePath.empty()) {
+    throw std::runtime_error("plotfile path is required");
   }
 
   return parsed;
@@ -529,75 +562,258 @@ void ViskoresVolumeRenderer::initialize() const {
   }
 }
 
-ViskoresVolumeRenderer::SceneGeometry
-ViskoresVolumeRenderer::createRankSpecificGeometry() const {
-  constexpr int boxesX = 2;
-  constexpr int boxesY = 2;
-  constexpr int boxesZ = 2;
-  constexpr int totalBoxes = boxesX * boxesY * boxesZ;
-  constexpr float boxScale = 0.8f;
-  constexpr float spacing = boxScale;  // centers are one box width apart
+auto ViskoresVolumeRenderer::loadPlotFileGeometry(
+    const std::string& plotfilePath,
+    const std::string& variableName,
+    int requestedMaxLevel) const -> SceneGeometry {
+  if (plotfilePath.empty()) {
+    throw std::invalid_argument("Plotfile path must not be empty.");
+  }
 
-  const int ranks = std::max(numProcs, 1);
-  const int boxesPerRank = totalBoxes / ranks;
-  const int remainder = totalBoxes % ranks;
-  const int localBoxCount = boxesPerRank + ((rank < remainder) ? 1 : 0);
-  const int firstBoxIndex =
-      boxesPerRank * rank + std::min(rank, remainder);
+  amrex::PlotFileData plotfile(plotfilePath);
+
+  const int spaceDim = plotfile.spaceDim();
+  if (spaceDim != 3) {
+    std::ostringstream message;
+    message << "Plotfile '" << plotfilePath << "' has space dimension "
+            << spaceDim << ". The volume renderer currently expects 3D data.";
+    throw std::runtime_error(message.str());
+  }
+
+  const auto& varNames = plotfile.varNames();
+  if (varNames.empty()) {
+    throw std::runtime_error("Plotfile contains no cell variables to render.");
+  }
+
+  std::string componentName = variableName;
+  if (componentName.empty()) {
+    componentName = varNames.front();
+  } else {
+    const auto it =
+        std::find(varNames.begin(), varNames.end(), componentName);
+    if (it == varNames.end()) {
+      std::ostringstream message;
+      message << "Variable '" << componentName
+              << "' not found in plotfile '" << plotfilePath << "'.";
+      throw std::runtime_error(message.str());
+    }
+  }
+
+  const int finestLevel = plotfile.finestLevel();
+  int maxLevel = requestedMaxLevel;
+  if (maxLevel < 0 || maxLevel > finestLevel) {
+    maxLevel = finestLevel;
+  }
 
   SceneGeometry scene;
-  scene.localBoxes.reserve(std::max(localBoxCount, 0));
+  scene.localBoxes.reserve(64);
 
-  Vec3 localMin(std::numeric_limits<float>::max());
-  Vec3 localMax(-std::numeric_limits<float>::max());
-  const Vec3 halfExtent(boxScale * 0.5f);
+  Vec3 localMinOriginal(std::numeric_limits<float>::max());
+  Vec3 localMaxOriginal(-std::numeric_limits<float>::max());
+  bool hasLocalBoxes = false;
 
-  for (int localIndex = 0; localIndex < localBoxCount; ++localIndex) {
-    const int boxIndex = firstBoxIndex + localIndex;
-    if (boxIndex >= totalBoxes) {
+  float localScalarMin = std::numeric_limits<float>::infinity();
+  float localScalarMax = -std::numeric_limits<float>::infinity();
+  bool hasLocalScalars = false;
+
+  const amrex::Array<amrex::Real, AMREX_SPACEDIM> probLo = plotfile.probLo();
+
+  amrex::Vector<amrex::MultiFab> levelData;
+  levelData.reserve(static_cast<std::size_t>(maxLevel) + 1);
+  for (int level = 0; level <= maxLevel; ++level) {
+    levelData.emplace_back(plotfile.get(level, componentName));
+  }
+
+  amrex::Vector<amrex::MultiFab const*> levelPtrs;
+  levelPtrs.reserve(levelData.size());
+  for (auto& mf : levelData) {
+    levelPtrs.push_back(&mf);
+  }
+
+  amrex::Vector<amrex::IntVect> refinementRatios;
+  refinementRatios.reserve((maxLevel > 0) ? static_cast<std::size_t>(maxLevel) : 0);
+  for (int level = 0; level < maxLevel; ++level) {
+    amrex::IntVect ratio(plotfile.refRatio(level));
+    for (int id = spaceDim; id < AMREX_SPACEDIM; ++id) {
+      ratio[id] = 1;
+    }
+    refinementRatios.push_back(ratio);
+  }
+
+  amrex::Vector<amrex::MultiFab> convexified =
+      amrex::convexify(levelPtrs, refinementRatios);
+
+  for (int level = 0; level <= maxLevel; ++level) {
+    if (level >= static_cast<int>(convexified.size())) {
       break;
     }
 
-    const int layer = boxIndex / (boxesX * boxesY);
-    const int inLayerIndex = boxIndex % (boxesX * boxesY);
-    const int row = inLayerIndex / boxesX;
-    const int col = inLayerIndex % boxesX;
+    amrex::MultiFab& mf = convexified[level];
+    if (mf.size() == 0) {
+      continue;
+    }
 
-    Vec3 offset(0.0f);
-    offset[0] = (static_cast<float>(col) -
-                 (static_cast<float>(boxesX) - 1.0f) * 0.5f) *
-                spacing;
-    offset[1] = ((static_cast<float>(boxesY) - 1.0f) * 0.5f -
-                 static_cast<float>(row)) *
-                spacing;
-    offset[2] = (static_cast<float>(layer) -
-                 (static_cast<float>(boxesZ) - 1.0f) * 0.5f) *
-                spacing;
+    const amrex::Array<amrex::Real, AMREX_SPACEDIM> cellSize =
+        plotfile.cellSize(level);
 
-    AmrBox box;
-    box.minCorner = offset - halfExtent;
-    box.maxCorner = offset + halfExtent;
+    for (amrex::MFIter mfi(mf); mfi.isValid(); ++mfi) {
+      const amrex::Box& box = mfi.validbox();
+      const amrex::IntVect lo = box.smallEnd();
+      const amrex::IntVect hi = box.bigEnd();
 
-    const int refinementCycle = boxIndex % 3;
-    const Id baseResolution = 8;
-    const Id cellsPerAxis = baseResolution + static_cast<Id>(refinementCycle * 4);
-    box.cellDimensions =
-        viskores::Id3(cellsPerAxis, cellsPerAxis, cellsPerAxis);
+      const int nx = box.length(0);
+      const int ny = box.length(1);
+      const int nz = box.length(2);
+      if (nx <= 0 || ny <= 0 || nz <= 0) {
+        continue;
+      }
 
-    const float cellValue = static_cast<float>(boxIndex);
-    const std::size_t valueCount =
-        static_cast<std::size_t>(box.cellDimensions[0]) *
-        static_cast<std::size_t>(box.cellDimensions[1]) *
-        static_cast<std::size_t>(box.cellDimensions[2]);
-    box.cellValues.assign(valueCount, cellValue);
+      AmrBox amrBox;
+      amrBox.cellDimensions =
+          viskores::Id3(static_cast<Id>(nx),
+                        static_cast<Id>(ny),
+                        static_cast<Id>(nz));
 
-    scene.localBoxes.push_back(box);
+      Vec3 minCorner(0.0f);
+      Vec3 maxCorner(0.0f);
+      minCorner[0] = static_cast<float>(
+          probLo[0] + static_cast<double>(lo[0]) * cellSize[0]);
+      minCorner[1] = static_cast<float>(
+          probLo[1] + static_cast<double>(lo[1]) * cellSize[1]);
+      minCorner[2] = static_cast<float>(
+          probLo[2] + static_cast<double>(lo[2]) * cellSize[2]);
+      maxCorner[0] = static_cast<float>(
+          probLo[0] + static_cast<double>(hi[0] + 1) * cellSize[0]);
+      maxCorner[1] = static_cast<float>(
+          probLo[1] + static_cast<double>(hi[1] + 1) * cellSize[1]);
+      maxCorner[2] = static_cast<float>(
+          probLo[2] + static_cast<double>(hi[2] + 1) * cellSize[2]);
 
+      localMinOriginal = componentMin(localMinOriginal, minCorner);
+      localMaxOriginal = componentMax(localMaxOriginal, maxCorner);
+      amrBox.minCorner = minCorner;
+      amrBox.maxCorner = maxCorner;
+      hasLocalBoxes = true;
+
+      const std::size_t valueCount =
+          static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny) *
+          static_cast<std::size_t>(nz);
+      amrBox.cellValues.resize(valueCount);
+
+      const auto data = mf.const_array(mfi);
+
+      for (int k = 0; k < nz; ++k) {
+        const int globalK = lo[2] + k;
+        for (int j = 0; j < ny; ++j) {
+          const int globalJ = lo[1] + j;
+          for (int i = 0; i < nx; ++i) {
+            const int globalI = lo[0] + i;
+            float value =
+                static_cast<float>(data(globalI, globalJ, globalK));
+            if (!std::isfinite(value)) {
+              value = 0.0f;
+            } else {
+              localScalarMin = std::min(localScalarMin, value);
+              localScalarMax = std::max(localScalarMax, value);
+              hasLocalScalars = true;
+            }
+
+            const std::size_t index =
+                (static_cast<std::size_t>(k) * static_cast<std::size_t>(ny) +
+                 static_cast<std::size_t>(j)) *
+                    static_cast<std::size_t>(nx) +
+                static_cast<std::size_t>(i);
+            amrBox.cellValues[index] = value;
+          }
+        }
+      }
+
+      scene.localBoxes.push_back(std::move(amrBox));
+    }
+  }
+
+  if (!hasLocalBoxes) {
+    localMinOriginal = Vec3(std::numeric_limits<float>::max());
+    localMaxOriginal = Vec3(-std::numeric_limits<float>::max());
+  }
+
+  std::array<float, 3> localMinOriginalArray = {localMinOriginal[0],
+                                                localMinOriginal[1],
+                                                localMinOriginal[2]};
+  std::array<float, 3> localMaxOriginalArray = {localMaxOriginal[0],
+                                                localMaxOriginal[1],
+                                                localMaxOriginal[2]};
+  std::array<float, 3> globalMinOriginalArray = {
+      std::numeric_limits<float>::max(),
+      std::numeric_limits<float>::max(),
+      std::numeric_limits<float>::max()};
+  std::array<float, 3> globalMaxOriginalArray = {
+      -std::numeric_limits<float>::max(),
+      -std::numeric_limits<float>::max(),
+      -std::numeric_limits<float>::max()};
+
+  MPI_Allreduce(localMinOriginalArray.data(),
+                globalMinOriginalArray.data(),
+                3,
+                MPI_FLOAT,
+                MPI_MIN,
+                MPI_COMM_WORLD);
+  MPI_Allreduce(localMaxOriginalArray.data(),
+                globalMaxOriginalArray.data(),
+                3,
+                MPI_FLOAT,
+                MPI_MAX,
+                MPI_COMM_WORLD);
+
+  Vec3 globalMinOriginal(globalMinOriginalArray[0],
+                         globalMinOriginalArray[1],
+                         globalMinOriginalArray[2]);
+  Vec3 globalMaxOriginal(globalMaxOriginalArray[0],
+                         globalMaxOriginalArray[1],
+                         globalMaxOriginalArray[2]);
+
+  Vec3 globalExtentOriginal = globalMaxOriginal - globalMinOriginal;
+  float minExtent = std::numeric_limits<float>::max();
+  for (int component = 0; component < 3; ++component) {
+    const float axisLength = std::fabs(globalExtentOriginal[component]);
+    if (axisLength > 0.0f && std::isfinite(axisLength)) {
+      minExtent = std::min(minExtent, axisLength);
+    }
+  }
+
+  float globalScale = 1.0f;
+  if (minExtent > 0.0f && std::isfinite(minExtent)) {
+    globalScale = 1.0f / minExtent;
+  }
+  if (!std::isfinite(globalScale) || globalScale <= 0.0f) {
+    globalScale = 1.0f;
+  }
+
+  if (globalScale != 1.0f) {
+    for (auto& box : scene.localBoxes) {
+      box.minCorner[0] *= globalScale;
+      box.minCorner[1] *= globalScale;
+      box.minCorner[2] *= globalScale;
+      box.maxCorner[0] *= globalScale;
+      box.maxCorner[1] *= globalScale;
+      box.maxCorner[2] *= globalScale;
+    }
+    globalMinOriginal[0] *= globalScale;
+    globalMinOriginal[1] *= globalScale;
+    globalMinOriginal[2] *= globalScale;
+    globalMaxOriginal[0] *= globalScale;
+    globalMaxOriginal[1] *= globalScale;
+    globalMaxOriginal[2] *= globalScale;
+  }
+
+  Vec3 localMin(std::numeric_limits<float>::max());
+  Vec3 localMax(-std::numeric_limits<float>::max());
+  for (const auto& box : scene.localBoxes) {
     localMin = componentMin(localMin, box.minCorner);
     localMax = componentMax(localMax, box.maxCorner);
   }
 
-  if (scene.localBoxes.empty()) {
+  if (!hasLocalBoxes) {
     localMin = Vec3(std::numeric_limits<float>::max());
     localMax = Vec3(-std::numeric_limits<float>::max());
   }
@@ -626,24 +842,93 @@ ViskoresVolumeRenderer::createRankSpecificGeometry() const {
                 MPI_MAX,
                 MPI_COMM_WORLD);
 
-  Vec3 minCorner(globalMinArray[0],
+  Vec3 globalMin(globalMinArray[0],
                  globalMinArray[1],
                  globalMinArray[2]);
-  Vec3 maxCorner(globalMaxArray[0],
+  Vec3 globalMax(globalMaxArray[0],
                  globalMaxArray[1],
                  globalMaxArray[2]);
 
-  const Vec3 padding(spacing * 0.35f);
-  if (minCorner[0] > maxCorner[0] || minCorner[1] > maxCorner[1] ||
-      minCorner[2] > maxCorner[2]) {
-    scene.explicitBounds.minCorner = Vec3(-1.0f) - padding;
-    scene.explicitBounds.maxCorner = Vec3(1.0f) + padding;
-  } else {
-    scene.explicitBounds.minCorner = minCorner - padding;
-    scene.explicitBounds.maxCorner = maxCorner + padding;
+  const bool invalidBounds = (globalMin[0] > globalMax[0]) ||
+                             (globalMin[1] > globalMax[1]) ||
+                             (globalMin[2] > globalMax[2]);
+  if (invalidBounds) {
+    throw std::runtime_error(
+        "Failed to locate any volumetric data within the plotfile.");
   }
 
+  const Vec3 extent = globalMax - globalMin;
+  const float maxExtent = std::max(
+      extent[0], std::max(extent[1], extent[2]));
+  const float paddingAmount =
+      (maxExtent > 0.0f) ? maxExtent * 0.05f : 1.0f;
+  const Vec3 padding(paddingAmount);
+
+  scene.explicitBounds.minCorner = globalMin - padding;
+  scene.explicitBounds.maxCorner = globalMax + padding;
   scene.hasExplicitBounds = true;
+
+  float scalarMinSend =
+      hasLocalScalars ? localScalarMin : std::numeric_limits<float>::infinity();
+  float scalarMaxSend =
+      hasLocalScalars ? localScalarMax : -std::numeric_limits<float>::infinity();
+  float globalScalarMin = scalarMinSend;
+  float globalScalarMax = scalarMaxSend;
+
+  MPI_Allreduce(&scalarMinSend,
+                &globalScalarMin,
+                1,
+                MPI_FLOAT,
+                MPI_MIN,
+                MPI_COMM_WORLD);
+  MPI_Allreduce(&scalarMaxSend,
+                &globalScalarMax,
+                1,
+                MPI_FLOAT,
+                MPI_MAX,
+                MPI_COMM_WORLD);
+
+  int localHasScalars = hasLocalScalars ? 1 : 0;
+  int globalHasScalars = 0;
+  MPI_Allreduce(&localHasScalars,
+                &globalHasScalars,
+                1,
+                MPI_INT,
+                MPI_SUM,
+                MPI_COMM_WORLD);
+
+  if (globalHasScalars <= 0 || !std::isfinite(globalScalarMin) ||
+      !std::isfinite(globalScalarMax)) {
+    throw std::runtime_error(
+        "Failed to compute a valid scalar range from the plotfile.");
+  }
+  if (globalScalarMin == globalScalarMax) {
+    globalScalarMax = globalScalarMin + 1.0f;
+  }
+
+  scene.scalarRange = {globalScalarMin, globalScalarMax};
+  scene.hasScalarRange = true;
+
+  const float rangeWidth = globalScalarMax - globalScalarMin;
+  if (rangeWidth > 0.0f && std::isfinite(rangeWidth)) {
+    for (auto& box : scene.localBoxes) {
+      for (float& value : box.cellValues) {
+        const float normalized =
+            (value - globalScalarMin) / rangeWidth;
+        value = std::clamp(normalized, 0.0f, 1.0f);
+      }
+    }
+    scene.scalarRange = {0.0f, 1.0f};
+  }
+
+  scene.localBoxes.shrink_to_fit();
+
+  if (rank == 0) {
+    std::cout << "Loaded plotfile '" << plotfilePath << "' with variable '"
+              << componentName << "' across " << convexified.size()
+              << " level(s); normalized scalar range [0, 1]" << std::endl;
+  }
+
   return scene;
 }
 
@@ -872,7 +1157,8 @@ int ViskoresVolumeRenderer::renderScene(
                           geometry.hasExplicitBounds,
                           geometry.explicitBounds);
   const std::pair<float, float> scalarRange =
-      computeGlobalScalarRange(geometry.localBoxes);
+      geometry.hasScalarRange ? geometry.scalarRange
+                              : computeGlobalScalarRange(geometry.localBoxes);
 
   Compositor* compositor = getCompositor();
   if (compositor == nullptr) {
@@ -957,7 +1243,8 @@ int ViskoresVolumeRenderer::renderScene(
                           geometry.hasExplicitBounds,
                           geometry.explicitBounds);
   const std::pair<float, float> scalarRange =
-      computeGlobalScalarRange(geometry.localBoxes);
+      geometry.hasScalarRange ? geometry.scalarRange
+                              : computeGlobalScalarRange(geometry.localBoxes);
 
   Compositor* compositor = getCompositor();
   if (compositor == nullptr) {
@@ -1159,7 +1446,9 @@ int ViskoresVolumeRenderer::run(int argc, char** argv) {
     return 0;
   }
 
-  SceneGeometry geometry = createRankSpecificGeometry();
+  SceneGeometry geometry = loadPlotFileGeometry(options.plotfilePath,
+                                                options.variableName,
+                                                options.maxLevel);
   return renderScene(options.outputFilename,
                      options.parameters,
                      geometry);
@@ -1175,6 +1464,7 @@ int main(int argc, char* argv[]) {
   }
 
   MPI_Init(&argc, &argv);
+  amrex::Initialize(argc, argv, false, MPI_COMM_WORLD);
 
   int exitCode = 0;
   try {
@@ -1189,6 +1479,7 @@ int main(int argc, char* argv[]) {
     MPI_Abort(MPI_COMM_WORLD, 1);
   }
 
+  amrex::Finalize();
   MPI_Finalize();
   return exitCode;
 }
