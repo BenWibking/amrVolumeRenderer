@@ -28,6 +28,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -1563,6 +1564,62 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
     }
   }
 
+  if (options.scalarRange) {
+    const float rangeMin = options.scalarRange->first;
+    const float rangeMax = options.scalarRange->second;
+    if (!std::isfinite(rangeMin) || !std::isfinite(rangeMax) ||
+        !(rangeMin < rangeMax)) {
+      throw std::invalid_argument(
+          "scalar range must contain two finite values with min < max");
+    }
+  }
+
+  if (options.camera) {
+    const CameraParameters& camera = *options.camera;
+    const auto isFiniteVec3 = [](const Vec3& vector) -> bool {
+      return std::isfinite(vector[0]) && std::isfinite(vector[1]) &&
+             std::isfinite(vector[2]);
+    };
+
+    Vec3 eye(camera.eye);
+    Vec3 lookAt(camera.lookAt);
+    Vec3 up(camera.up);
+    if (!isFiniteVec3(eye) || !isFiniteVec3(lookAt) || !isFiniteVec3(up)) {
+      throw std::invalid_argument(
+          "camera vectors must have finite components");
+    }
+
+    const Vec3 forward = lookAt - eye;
+    const float forwardLength = viskores::Magnitude(forward);
+    if (!(forwardLength > 0.0f) || !std::isfinite(forwardLength)) {
+      throw std::invalid_argument("camera eye and look-at must be distinct");
+    }
+
+    const float upLength = viskores::Magnitude(up);
+    if (!(upLength > 0.0f) || !std::isfinite(upLength)) {
+      throw std::invalid_argument("camera up vector must be non-zero");
+    }
+    const float crossMagnitude =
+        viskores::Magnitude(viskores::Cross(forward, up));
+    if (!(crossMagnitude > 1e-6f)) {
+      throw std::invalid_argument(
+          "camera up vector must not be parallel to the view direction");
+    }
+
+    if (!std::isfinite(camera.fovYDegrees) || !(camera.fovYDegrees > 0.0f) ||
+        !(camera.fovYDegrees < 180.0f)) {
+      throw std::invalid_argument("camera fov must be in (0, 180) degrees");
+    }
+    if (!std::isfinite(camera.nearPlane) || !(camera.nearPlane > 0.0f)) {
+      throw std::invalid_argument("camera near plane must be > 0");
+    }
+    if (!std::isfinite(camera.farPlane) ||
+        !(camera.farPlane > camera.nearPlane)) {
+      throw std::invalid_argument(
+          "camera far plane must exceed the near plane");
+    }
+  }
+
   if (!amrex::FileSystem::Exists(options.plotfilePath)) {
     throw std::runtime_error("plotfile path '" + options.plotfilePath +
                              "' does not exist");
@@ -1573,6 +1630,21 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
                                                 options.minLevel,
                                                 options.maxLevel,
                                                 options.logScaleInput);
+  if (options.scalarRange) {
+    geometry.scalarRange = *options.scalarRange;
+    geometry.hasScalarRange = true;
+  }
+
+  if (options.camera) {
+    Vec3 normalizedUp(options.camera->up);
+    normalizedUp = viskores::Normal(normalizedUp);
+    options.camera->up = normalizedUp;
+    return renderScene(options.outputFilename,
+                       options.parameters,
+                       geometry,
+                       *options.camera);
+  }
+
   return renderScene(options.outputFilename, options.parameters, geometry);
 }
 

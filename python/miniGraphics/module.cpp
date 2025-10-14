@@ -18,42 +18,104 @@ namespace nb = nanobind;
 
 namespace {
 
-class RuntimeScope {
- public:
-  RuntimeScope() {
-    int mpiInitialized = 0;
-    MPI_Initialized(&mpiInitialized);
-    if (!mpiInitialized) {
-      int argc = 0;
-      char** argv = nullptr;
-      MPI_Init(&argc, &argv);
-      ownsMpi_ = true;
-    }
+struct RuntimeState {
+  bool mpiOwned = false;
+  bool mpiInitialized = false;
+  bool amrexOwned = false;
+  bool amrexInitialized = false;
+  int manualRefCount = 0;
+};
 
-    amrexInitialized_ = amrex::Initialized();
-    if (!amrexInitialized_) {
-      int argc = 0;
-      char** argv = nullptr;
-      amrex::Initialize(argc, argv, false, MPI_COMM_WORLD);
-    }
+RuntimeState& runtimeState() {
+  static RuntimeState state;
+  return state;
+}
+
+void ensure_runtime_initialized() {
+  auto& state = runtimeState();
+
+  int mpiFinalized = 0;
+  MPI_Finalized(&mpiFinalized);
+  if (mpiFinalized) {
+    throw std::runtime_error(
+        "MPI has already been finalized and cannot be re-initialized.");
   }
 
-  ~RuntimeScope() {
-    if (!amrexInitialized_) {
-      amrex::Finalize();
-    }
-    if (ownsMpi_) {
+  int mpiInitFlag = 0;
+  MPI_Initialized(&mpiInitFlag);
+  if (!mpiInitFlag) {
+    int argc = 0;
+    char** argv = nullptr;
+    MPI_Init(&argc, &argv);
+    state.mpiOwned = true;
+    state.mpiInitialized = true;
+  } else {
+    state.mpiInitialized = true;
+  }
+
+  if (!amrex::Initialized()) {
+    int argc = 0;
+    char** argv = nullptr;
+    amrex::Initialize(argc, argv, false, MPI_COMM_WORLD);
+    state.amrexOwned = true;
+    state.amrexInitialized = true;
+  } else {
+    state.amrexInitialized = true;
+  }
+}
+
+void finalize_runtime_if_owned() {
+  auto& state = runtimeState();
+
+  if (state.amrexOwned && state.amrexInitialized) {
+    amrex::Finalize();
+    state.amrexInitialized = false;
+    state.amrexOwned = false;
+  }
+
+  if (state.mpiOwned && state.mpiInitialized) {
+    int finalized = 0;
+    MPI_Finalized(&finalized);
+    if (!finalized) {
       MPI_Finalize();
+      state.mpiInitialized = false;
+    }
+    state.mpiOwned = false;
+  }
+}
+
+class RuntimeScope {
+ public:
+  RuntimeScope() { ensure_runtime_initialized(); }
+
+  ~RuntimeScope() {
+    auto& state = runtimeState();
+    if (state.manualRefCount == 0) {
+      finalize_runtime_if_owned();
     }
   }
 
   RuntimeScope(const RuntimeScope&) = delete;
   RuntimeScope& operator=(const RuntimeScope&) = delete;
-
- private:
-  bool ownsMpi_ = false;
-  bool amrexInitialized_ = false;
 };
+
+void initialize_runtime() {
+  auto& state = runtimeState();
+  state.manualRefCount++;
+  ensure_runtime_initialized();
+}
+
+void finalize_runtime() {
+  auto& state = runtimeState();
+  if (state.manualRefCount == 0) {
+    throw std::runtime_error(
+        "miniGraphics.finalize_runtime requires a matching initialize_runtime call");
+  }
+  state.manualRefCount--;
+  if (state.manualRefCount == 0) {
+    finalize_runtime_if_owned();
+  }
+}
 
 std::string normalizeOutput(const std::optional<std::string>& requested,
                             const std::string& fallback) {
@@ -78,7 +140,14 @@ int render_volume(const std::string& plotfilePath,
                   int maxLevel = -1,
                   bool logScaleInput = false,
                   std::optional<std::array<float, 3>> upVector = std::nullopt,
-                  std::optional<std::string> outputFilename = std::nullopt) {
+                  std::optional<std::string> outputFilename = std::nullopt,
+                  std::optional<std::array<float, 2>> scalarRange = std::nullopt,
+                  std::optional<std::array<float, 3>> cameraEye = std::nullopt,
+                  std::optional<std::array<float, 3>> cameraLookAt = std::nullopt,
+                  std::optional<std::array<float, 3>> cameraUp = std::nullopt,
+                  std::optional<float> cameraFovYDegrees = std::nullopt,
+                  std::optional<float> cameraNearPlane = std::nullopt,
+                  std::optional<float> cameraFarPlane = std::nullopt) {
   RuntimeScope runtime;
 
   ViskoresVolumeRenderer::RunOptions options;
@@ -116,6 +185,52 @@ int render_volume(const std::string& plotfilePath,
     options.parameters.useCustomUp = false;
   }
 
+  if (scalarRange) {
+    const float rangeMin = (*scalarRange)[0];
+    const float rangeMax = (*scalarRange)[1];
+    if (!std::isfinite(rangeMin) || !std::isfinite(rangeMax) ||
+        !(rangeMin < rangeMax)) {
+      throw std::invalid_argument(
+          "scalar_range must contain two finite values with min < max");
+    }
+    options.scalarRange = std::make_pair(rangeMin, rangeMax);
+  }
+
+  const bool anyCameraParameter =
+      cameraEye.has_value() || cameraLookAt.has_value() ||
+      cameraUp.has_value() || cameraFovYDegrees.has_value() ||
+      cameraNearPlane.has_value() || cameraFarPlane.has_value();
+
+  if (anyCameraParameter) {
+    if (!cameraEye || !cameraLookAt) {
+      throw std::invalid_argument(
+          "camera_eye and camera_look_at must be provided when specifying a "
+          "camera");
+    }
+
+    const auto toVec3 = [](const std::array<float, 3>& values) {
+      return viskores::Vec3f_32(values[0], values[1], values[2]);
+    };
+
+    viskores::Vec3f_32 eye = toVec3(*cameraEye);
+    viskores::Vec3f_32 lookAt = toVec3(*cameraLookAt);
+    const std::array<float, 3> upArray =
+        cameraUp.value_or(std::array<float, 3>{0.0f, 1.0f, 0.0f});
+    viskores::Vec3f_32 up = toVec3(upArray);
+    const float upLength = viskores::Magnitude(up);
+    if (!(upLength > 0.0f) || !std::isfinite(upLength)) {
+      throw std::invalid_argument(
+          "camera_up must contain finite, non-zero components");
+    }
+    up = up / upLength;
+
+    const float fovY = cameraFovYDegrees.value_or(45.0f);
+    const float nearPlane = cameraNearPlane.value_or(0.1f);
+    const float farPlane = cameraFarPlane.value_or(1000.0f);
+    options.camera = ViskoresVolumeRenderer::CameraParameters{
+        eye, lookAt, up, fovY, nearPlane, farPlane};
+  }
+
   ViskoresVolumeRenderer renderer;
   int exitCode = 0;
   {
@@ -135,6 +250,13 @@ NB_MODULE(miniGraphics_ext, module) {
       "Python bindings for the miniGraphics Viskores volume renderer.";
 
   module.def(
+      "initialize_runtime",
+      &initialize_runtime,
+      "Initialize MPI and AMReX ahead of multiple render() invocations.");
+  module.def("finalize_runtime",
+             &finalize_runtime,
+             "Finalize MPI and AMReX after initialize_runtime().");
+  module.def(
       "render",
       &render_volume,
       nb::arg("plotfile"),
@@ -151,7 +273,15 @@ NB_MODULE(miniGraphics_ext, module) {
       nb::arg("log_scale") = false,
       nb::arg("up_vector") = nb::none(),
       nb::arg("output") = nb::none(),
+      nb::arg("scalar_range") = nb::none(),
+      nb::arg("camera_eye") = nb::none(),
+      nb::arg("camera_look_at") = nb::none(),
+      nb::arg("camera_up") = nb::none(),
+      nb::arg("camera_fov_y") = nb::none(),
+      nb::arg("camera_near") = nb::none(),
+      nb::arg("camera_far") = nb::none(),
       "Render a plotfile using the DirectSend compositor.\n\n"
       "Parameters mirror the command line flags of the ViskoresVolumeRenderer "
-      "executable.");
+      "executable. Additional keyword arguments allow specifying "
+      "scalar_range=(min, max) and an explicit camera via camera_* options.");
 }

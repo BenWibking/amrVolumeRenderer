@@ -8,6 +8,7 @@
 #include <Common/Compositor.hpp>
 #include <Common/ImageFull.hpp>
 #include <Common/VolumeTypes.hpp>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -58,6 +59,8 @@ class ViskoresVolumeRenderer {
     int maxLevel = -1;
     bool logScaleInput = false;
     bool exitEarly = false;
+    std::optional<CameraParameters> camera;
+    std::optional<std::pair<float, float>> scalarRange;
   };
 
   /// \brief Render the provided scene geometry using the configured compositor.
