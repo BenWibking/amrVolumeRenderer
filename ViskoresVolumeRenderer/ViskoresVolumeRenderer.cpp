@@ -20,6 +20,7 @@
 #include <Common/VolumeTypes.hpp>
 #include <DirectSend/Base/DirectSendBase.hpp>
 #include <algorithm>
+#include <chrono>
 #include <array>
 #include <cmath>
 #include <fstream>
@@ -1365,6 +1366,28 @@ int ViskoresVolumeRenderer::renderSingleTrial(
   const int renderWidth = parameters.width * std::max(sqrtAntialiasing, 1);
   const int renderHeight = parameters.height * std::max(sqrtAntialiasing, 1);
 
+  const auto reportStageTime = [&](const char* label, double localSeconds) {
+    double maxSeconds = 0.0;
+    MPI_Reduce(&localSeconds,
+               &maxSeconds,
+               1,
+               MPI_DOUBLE,
+               MPI_MAX,
+               0,
+               MPI_COMM_WORLD);
+    if (rank == 0) {
+      std::ostringstream stream;
+      stream << std::fixed << std::setprecision(4);
+      if (trialIndex >= 0) {
+        stream << "Trial " << trialIndex << ": ";
+      } else {
+        stream << "Render: ";
+      }
+      stream << label << " took " << maxSeconds << " s";
+      std::cout << stream.str() << std::endl;
+    }
+  };
+
   float localCoarsestMinSpacing = 0.0f;
   for (const AmrBox& box : geometry.localBoxes) {
     const viskores::Vec3f_32 span = box.maxCorner - box.minCorner;
@@ -1427,6 +1450,7 @@ int ViskoresVolumeRenderer::renderSingleTrial(
   std::vector<float> depthHints;
   depthHints.reserve(geometry.localBoxes.size() + 1);
 
+  const auto renderStart = std::chrono::steady_clock::now();
   for (std::size_t boxIndex = 0; boxIndex < geometry.localBoxes.size();
        ++boxIndex) {
     const AmrBox& box = geometry.localBoxes[boxIndex];
@@ -1445,6 +1469,10 @@ int ViskoresVolumeRenderer::renderSingleTrial(
     depthHints.push_back(computeBoxDepthHint(box, camera));
     localLayers.push_back(std::move(layerImage));
   }
+  const auto renderEnd = std::chrono::steady_clock::now();
+  const double renderSeconds =
+      std::chrono::duration<double>(renderEnd - renderStart).count();
+  reportStageTime("per-box rendering", renderSeconds);
 
   auto boundingBoxLayer =
       std::make_unique<ImageRGBAFloatColorDepthSort>(renderWidth, renderHeight);
@@ -1467,6 +1495,7 @@ int ViskoresVolumeRenderer::renderSingleTrial(
                                   std::move(depthHints),
                                   std::move(prototype));
 
+  const auto visibilityStart = std::chrono::steady_clock::now();
   MPI_Group orderedGroup =
       buildVisibilityOrderedGroup(camera,
                                   aspect,
@@ -1474,9 +1503,18 @@ int ViskoresVolumeRenderer::renderSingleTrial(
                                   parameters.useVisibilityGraph,
                                   parameters.writeVisibilityGraph,
                                   geometry.localBoxes);
+  const auto visibilityEnd = std::chrono::steady_clock::now();
+  const double visibilitySeconds =
+      std::chrono::duration<double>(visibilityEnd - visibilityStart).count();
+  reportStageTime("visibility graph computation", visibilitySeconds);
 
+  const auto compositeStart = std::chrono::steady_clock::now();
   std::unique_ptr<Image> compositedImage =
       compositor->compose(&layeredImage, orderedGroup, MPI_COMM_WORLD);
+  const auto compositeEnd = std::chrono::steady_clock::now();
+  const double compositeSeconds =
+      std::chrono::duration<double>(compositeEnd - compositeStart).count();
+  reportStageTime("compositing", compositeSeconds);
 
   MPI_Group_free(&orderedGroup);
 
