@@ -21,19 +21,18 @@ cmake --build build --target ViskoresVolumeRenderer -j
 
 ```bash
 mpirun -np 4 build/bin/ViskoresVolumeRenderer \
-  --width 512 --height 512 --trials 3 --antialiasing 4
+  --width 512 --height 512 --antialiasing 4
 ```
 
 ### Command Line Options
 
 - `--width` / `--height`: Framebuffer size in pixels (default: 512×512).
-- `--trials`: Number of render iterations for timing (default: 1).
 - `--box-transparency`: Per-box transparency factor in `[0, 1]` (default: 0).
 - `--antialiasing`: Supersampling factor (must be a positive perfect square: 1, 4, 9, ...).
 - `--visibility-graph` / `--no-visibility-graph`: Toggle visibility-graph ordering (enabled by default).
-- `--output`: Destination filename for the composited image (default: `viskores-volume-trial.ppm`).
+- `--output`: Destination filename for the composited image (default: `viskores-volume.ppm`).
 
-Images are written on rank 0. When more than one trial is requested, each filename receives a `-trial-<N>` suffix inserted before the extension.
+Images are written on rank 0.
 
 ## Library Usage
 
@@ -77,7 +76,7 @@ int main(int argc, char** argv) {
 ```
 
 Omitting the camera argument keeps the previous behaviour, allowing the example
-to generate an orbiting view for each trial automatically.
+to generate an orbiting view automatically using the configured camera seed.
 
 ## Implementation Notes
 
@@ -86,5 +85,5 @@ to generate an orbiting view for each trial automatically.
 - Brick constant values flow through a jet color map with a shared scalar range, so assigning a distinct scalar per box yields distinct colors automatically.
 - An `antialiasing` supersampling factor (1, 4, 9, …) controls screen-space supersampling; the ray-march step size now follows the native AMR spacing and brightness stays consistent across levels.
 - Opacity samples are normalized by the ray step so AMR refinement does not change the apparent density of a feature.
-- The camera animates around the volume for each trial to illustrate how the composited result changes with view direction.
-- Camera state (eye, aim point, up vector, FOV, and clipping range) is computed explicitly per trial and passed straight to Viskores, avoiding any OpenGL matrix conversions.
+- The camera animates around the volume using a randomized orbit (seeded by `cameraSeed`) to illustrate how the composited result changes with view direction.
+- Camera state (eye, aim point, up vector, FOV, and clipping range) is computed explicitly for each render pass and passed straight to Viskores, avoiding any OpenGL matrix conversions.

@@ -304,7 +304,6 @@ void printUsage() {
       << "Usage: ViskoresVolumeRenderer [options] plotfile\n"
       << "  --width W        Image width (default: 512)\n"
       << "  --height H       Image height (default: 512)\n"
-      << "  --trials N       Number of render trials (default: 1)\n"
       << "  --antialiasing A Supersampling factor (positive integer square, "
          "default: 1)\n"
       << "  --box-transparency T  Transparency factor per box in [0,1] "
@@ -323,8 +322,7 @@ void printUsage() {
       << "  --up-vector X Y Z  Camera up vector components (default: 0 1 0)\n"
       << "  --log-scale      Apply natural log scaling before normalizing the "
          "input field\n"
-      << "  --output FILE    Output filename (default: "
-         "viskores-volume-trial.ppm)\n"
+      << "  --output FILE    Output filename (default: viskores-volume.ppm)\n"
       << "  -h, --help       Show this help message\n";
 }
 
@@ -349,11 +347,6 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
       parsed.parameters.height = std::stoi(requireValue(arg));
       if (parsed.parameters.height <= 0) {
         throw std::runtime_error("image height must be positive");
-      }
-    } else if (arg == "--trials") {
-      parsed.parameters.trials = std::stoi(requireValue(arg));
-      if (parsed.parameters.trials <= 0) {
-        throw std::runtime_error("number of trials must be positive");
       }
     } else if (arg == "--box-transparency") {
       parsed.parameters.boxTransparency = std::stof(requireValue(arg));
@@ -442,21 +435,6 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
   return parsed;
 }
 
-std::string buildTrialFilename(const std::string& base,
-                               int trialIndex,
-                               int totalTrials) {
-  if (totalTrials <= 1) {
-    return base;
-  }
-
-  const std::string suffix = "-trial-" + std::to_string(trialIndex);
-  const std::size_t dot = base.find_last_of('.');
-  if (dot == std::string::npos || dot == 0) {
-    return base + suffix;
-  }
-  return base.substr(0, dot) + suffix + base.substr(dot);
-}
-
 std::unique_ptr<ImageFull> downsampleImage(const ImageFull& source,
                                            int targetWidth,
                                            int targetHeight,
@@ -542,9 +520,6 @@ void ViskoresVolumeRenderer::validateRenderParameters(
     const RenderParameters& parameters) const {
   if (parameters.width <= 0 || parameters.height <= 0) {
     throw std::invalid_argument("image dimensions must be positive");
-  }
-  if (parameters.trials <= 0) {
-    throw std::invalid_argument("number of trials must be positive");
   }
   if (parameters.boxTransparency < 0.0f || parameters.boxTransparency > 1.0f) {
     throw std::invalid_argument("box transparency must be between 0 and 1");
@@ -1235,68 +1210,57 @@ int ViskoresVolumeRenderer::renderScene(
   const float fovY = viskores::Pif() * 0.25f;
   const float maxAltitude = viskores::Pif() * 0.25f;
 
-  for (int trial = 0; trial < parameters.trials; ++trial) {
-    const float halfFov = fovY * 0.5f;
-    const float minDistance =
-        (halfFov > 0.0f)
-            ? boundingRadius / static_cast<float>(std::tan(halfFov))
-            : boundingRadius;
-    const float safetyMargin = std::max(0.25f * boundingRadius, 0.5f);
-    const float cameraDistance = minDistance + safetyMargin;
+  const float halfFov = fovY * 0.5f;
+  const float minDistance =
+      (halfFov > 0.0f)
+          ? boundingRadius / static_cast<float>(std::tan(halfFov))
+          : boundingRadius;
+  const float safetyMargin = std::max(0.25f * boundingRadius, 0.5f);
+  const float cameraDistance = minDistance + safetyMargin;
 
-    std::mt19937 trialRng(parameters.cameraSeed +
-                          static_cast<unsigned int>(trial));
-    std::uniform_real_distribution<float> azimuthDistribution(
-        0.0f, viskores::TwoPif());
-    std::uniform_real_distribution<float> altitudeDistribution(-maxAltitude,
-                                                               maxAltitude);
-    const float azimuth = azimuthDistribution(trialRng);
-    const float altitude = altitudeDistribution(trialRng);
-    const float cosAltitude = std::cos(altitude);
+  std::mt19937 cameraRng(parameters.cameraSeed);
+  std::uniform_real_distribution<float> azimuthDistribution(
+      0.0f, viskores::TwoPif());
+  std::uniform_real_distribution<float> altitudeDistribution(-maxAltitude,
+                                                             maxAltitude);
+  const float azimuth = azimuthDistribution(cameraRng);
+  const float altitude = altitudeDistribution(cameraRng);
+  const float cosAltitude = std::cos(altitude);
 
-    const Vec3 eye(
-        center[0] + cameraDistance * cosAltitude * std::sin(azimuth),
-        center[1] + cameraDistance * std::sin(altitude),
-        center[2] + cameraDistance * cosAltitude * std::cos(azimuth));
+  const Vec3 eye(
+      center[0] + cameraDistance * cosAltitude * std::sin(azimuth),
+      center[1] + cameraDistance * std::sin(altitude),
+      center[2] + cameraDistance * cosAltitude * std::cos(azimuth));
 
-    Vec3 upVector =
-        parameters.useCustomUp ? parameters.cameraUp : Vec3(0.0f, 1.0f, 0.0f);
-    const Vec3 viewDir = viskores::Normal(center - eye);
+  Vec3 upVector =
+      parameters.useCustomUp ? parameters.cameraUp : Vec3(0.0f, 1.0f, 0.0f);
+  const Vec3 viewDir = viskores::Normal(center - eye);
+  if (viskores::Magnitude(viskores::Cross(viewDir, upVector)) <= 1e-4f) {
+    upVector = Vec3(0.0f, 0.0f, 1.0f);
     if (viskores::Magnitude(viskores::Cross(viewDir, upVector)) <= 1e-4f) {
-      upVector = Vec3(0.0f, 0.0f, 1.0f);
-      if (viskores::Magnitude(viskores::Cross(viewDir, upVector)) <= 1e-4f) {
-        upVector = Vec3(1.0f, 0.0f, 0.0f);
-      }
-    }
-    upVector = viskores::Normal(upVector);
-
-    const float nearPlane = 0.1f;
-    const float farPlane = cameraDistance * 4.0f;
-    CameraParameters camera{eye,
-                            center,
-                            upVector,
-                            fovY * 180.0f / viskores::Pif(),
-                            nearPlane,
-                            farPlane};
-
-    const std::string trialFilename =
-        buildTrialFilename(outputFilenameBase, trial, parameters.trials);
-    const int result = renderSingleTrial(trialFilename,
-                                         parameters,
-                                         geometry,
-                                         bounds,
-                                         scalarRange,
-                                         compositor,
-                                         groupGuard.group,
-                                         camera,
-                                         trial,
-                                         colorMapPtr);
-    if (result != 0) {
-      return result;
+      upVector = Vec3(1.0f, 0.0f, 0.0f);
     }
   }
+  upVector = viskores::Normal(upVector);
 
-  return 0;
+  const float nearPlane = 0.1f;
+  const float farPlane = cameraDistance * 4.0f;
+  CameraParameters camera{eye,
+                          center,
+                          upVector,
+                          fovY * 180.0f / viskores::Pif(),
+                          nearPlane,
+                          farPlane};
+
+  return renderSingleTrial(outputFilenameBase,
+                           parameters,
+                           geometry,
+                           bounds,
+                           scalarRange,
+                           compositor,
+                           groupGuard.group,
+                           camera,
+                           colorMapPtr);
 }
 
 int ViskoresVolumeRenderer::renderScene(
@@ -1327,25 +1291,15 @@ int ViskoresVolumeRenderer::renderScene(
   MpiGroupGuard groupGuard;
   MPI_Comm_group(MPI_COMM_WORLD, &groupGuard.group);
 
-  for (int trial = 0; trial < parameters.trials; ++trial) {
-    const std::string trialFilename =
-        buildTrialFilename(outputFilenameBase, trial, parameters.trials);
-    const int result = renderSingleTrial(trialFilename,
-                                         parameters,
-                                         geometry,
-                                         bounds,
-                                         scalarRange,
-                                         compositor,
-                                         groupGuard.group,
-                                         camera,
-                                         trial,
-                                         colorMapPtr);
-    if (result != 0) {
-      return result;
-    }
-  }
-
-  return 0;
+  return renderSingleTrial(outputFilenameBase,
+                           parameters,
+                           geometry,
+                           bounds,
+                           scalarRange,
+                           compositor,
+                           groupGuard.group,
+                           camera,
+                           colorMapPtr);
 }
 
 int ViskoresVolumeRenderer::renderSingleTrial(
@@ -1357,7 +1311,6 @@ int ViskoresVolumeRenderer::renderSingleTrial(
     Compositor* compositor,
     MPI_Group baseGroup,
     const CameraParameters& camera,
-    int trialIndex,
     const ColorMap* colorMap) {
   const float aspect = static_cast<float>(parameters.width) /
                        static_cast<float>(parameters.height);
@@ -1378,12 +1331,7 @@ int ViskoresVolumeRenderer::renderSingleTrial(
     if (rank == 0) {
       std::ostringstream stream;
       stream << std::fixed << std::setprecision(4);
-      if (trialIndex >= 0) {
-        stream << "Trial " << trialIndex << ": ";
-      } else {
-        stream << "Render: ";
-      }
-      stream << label << " took " << maxSeconds << " s";
+      stream << "Render: " << label << " took " << maxSeconds << " s";
       std::cout << stream.str() << std::endl;
     }
   };
@@ -1539,14 +1487,8 @@ int ViskoresVolumeRenderer::renderSingleTrial(
 
     if (rank == 0 && gatheredImage) {
       const int pixels = gatheredImage->getNumberOfPixels();
-      const bool hasTrialInfo = trialIndex >= 0;
-      if (hasTrialInfo) {
-        std::cout << "Trial " << trialIndex << ": composed " << pixels
-                  << " pixels on rank 0" << std::endl;
-      } else {
-        std::cout << "Render: composed " << pixels << " pixels on rank 0"
-                  << std::endl;
-      }
+      std::cout << "Render: composed " << pixels << " pixels on rank 0"
+                << std::endl;
 
       std::unique_ptr<ImageFull> outputImage;
       if (sqrtAntialiasing > 1) {
@@ -1559,24 +1501,12 @@ int ViskoresVolumeRenderer::renderSingleTrial(
       }
 
       const bool saved = SavePPM(*outputImage, outputFilename);
-      if (hasTrialInfo) {
-        if (saved) {
-          std::cout << "Saved trial " << trialIndex
-                    << " volume composited image to '" << outputFilename << "'"
-                    << std::endl;
-        } else {
-          std::cerr << "Failed to save trial " << trialIndex
-                    << " composited image to '" << outputFilename << "'"
-                    << std::endl;
-        }
+      if (saved) {
+        std::cout << "Saved volume composited image to '" << outputFilename
+                  << "'" << std::endl;
       } else {
-        if (saved) {
-          std::cout << "Saved volume composited image to '" << outputFilename
-                    << "'" << std::endl;
-        } else {
-          std::cerr << "Failed to save composited image to '" << outputFilename
-                    << "'" << std::endl;
-        }
+        std::cerr << "Failed to save composited image to '" << outputFilename
+                  << "'" << std::endl;
       }
     }
   }

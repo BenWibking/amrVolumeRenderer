@@ -34,7 +34,6 @@ class ViskoresVolumeRenderer {
   struct RenderParameters {
     int width = 512;
     int height = 512;
-    int trials = 1;
     float boxTransparency = 0.0f;
     int antialiasing = 1;
     bool useVisibilityGraph = true;
@@ -54,7 +53,7 @@ class ViskoresVolumeRenderer {
 
   struct RunOptions {
     RenderParameters parameters;
-    std::string outputFilename = "viskores-volume-trial.ppm";
+    std::string outputFilename = "viskores-volume.ppm";
     std::string plotfilePath;
     std::string variableName;
     int minLevel = 0;
@@ -135,7 +134,6 @@ class ViskoresVolumeRenderer {
                         Compositor* compositor,
                         MPI_Group baseGroup,
                         const CameraParameters& camera,
-                        int trialIndex,
                         const ColorMap* colorMap);
 
   int rank;

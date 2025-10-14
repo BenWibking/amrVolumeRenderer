@@ -131,7 +131,6 @@ std::string normalizeOutput(const std::optional<std::string>& requested,
 int render_volume(const std::string& plotfilePath,
                   int width = 512,
                   int height = 512,
-                  int trials = 1,
                   float boxTransparency = 0.0f,
                   int antialiasing = 1,
                   bool visibilityGraph = true,
@@ -157,7 +156,6 @@ int render_volume(const std::string& plotfilePath,
   options.plotfilePath = plotfilePath;
   options.parameters.width = width;
   options.parameters.height = height;
-  options.parameters.trials = trials;
   options.parameters.boxTransparency = boxTransparency;
   options.parameters.antialiasing = antialiasing;
   options.parameters.useVisibilityGraph = visibilityGraph;
@@ -280,7 +278,6 @@ NB_MODULE(miniGraphics_ext, module) {
       nb::arg("plotfile"),
       nb::arg("width") = 512,
       nb::arg("height") = 512,
-      nb::arg("trials") = 1,
       nb::arg("box_transparency") = 0.0f,
       nb::arg("antialiasing") = 1,
       nb::arg("visibility_graph") = true,

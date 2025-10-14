@@ -49,7 +49,6 @@ def _parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace
     parser.add_argument("plotfile", type=Path, help="Path to the AMReX plotfile")
     parser.add_argument("--width", type=int, default=512, help="Image width in pixels (default: 512)")
     parser.add_argument("--height", type=int, default=512, help="Image height in pixels (default: 512)")
-    parser.add_argument("--trials", type=int, default=1, help="Number of render trials (default: 1)")
     parser.add_argument(
         "--box-transparency",
         type=float,
@@ -103,7 +102,7 @@ def _parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace
         "--output",
         type=Path,
         default=None,
-        help="Output image filename (default: viskores-volume-trial.ppm)",
+        help="Output image filename (default: viskores-volume.ppm)",
     )
     return parser.parse_args(argv)
 
@@ -118,7 +117,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         plotfile=str(args.plotfile),
         width=args.width,
         height=args.height,
-        trials=args.trials,
         box_transparency=args.box_transparency,
         antialiasing=args.antialiasing,
         visibility_graph=args.visibility_graph,

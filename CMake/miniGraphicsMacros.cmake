@@ -118,7 +118,6 @@ function(miniGraphics_executable miniapp_name)
   if(MINIGRAPHICS_ENABLE_TESTING AND NOT miniGraphics_executable_DISABLE_TESTS)
     set(base_options
       --width=110 --height=100
-      --trials=1
       --yaml-output=test-runs.yaml
       )
     if(miniGraphics_executable_POWER_OF_TWO_ONLY)

@@ -58,7 +58,6 @@ render(
     "plt0010",
     width=512,
     height=512,
-    trials=2,
     box_transparency=0.15,
     antialiasing=4,
     visibility_graph=True,
