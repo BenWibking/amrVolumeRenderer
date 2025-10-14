@@ -31,17 +31,19 @@ def _import_renderer():
 
 
 # Hard-coded rendering configuration.
-PLOTFILE_GLOB = "../quokka-turb-driving/tests/mach_10_v2/plt*"
+#PLOTFILE_GLOB = "../quokka-turb-driving/tests/mach_10_v2/plt*"
+PLOTFILE_GLOB = "../quokka/tests/plt*"
 VARIABLE = "gasDensity"
 IMAGE_WIDTH = 512
 IMAGE_HEIGHT = 512
 OUTPUT_DIR = Path("renders")
 OUTPUT_PREFIX = "render"
-ANTIALIASING = 16
-BOX_TRANSPARENCY = 0.9
-LOG_SCALE = True
+ANTIALIASING = 4
+BOX_TRANSPARENCY = 0.975
+LOG_SCALE = False
 CAMERA_EYE = (2.0, 1.2, 2.0)
-CAMERA_LOOK_AT = (0.5, 0.5, 0.5)
+#CAMERA_LOOK_AT = (0.5, 0.5, 0.5)
+CAMERA_LOOK_AT = (0., 0., 0.)
 CAMERA_UP = (0.0, 1.0, 0.0)
 FOV_Y = 45.0
 NEAR_PLANE = 0.1
@@ -92,12 +94,33 @@ def _render_frames() -> None:
     if NUM_FRAMES <= 0:
         raise ValueError("num-frames must be a positive integer")
 
+    # Precompute the camera offset so we can orbit around the look-at point.
+    rel_eye = (
+        camera_eye[0] - camera_look_at[0],
+        camera_eye[1] - camera_look_at[1],
+        camera_eye[2] - camera_look_at[2],
+    )
+    horizontal_radius = math.hypot(rel_eye[0], rel_eye[2])
+    base_angle = math.atan2(rel_eye[2], rel_eye[0]) if horizontal_radius > 0.0 else 0.0
+
     try:
         renderer.initialize_runtime()
         runtime_initialized = True
 
         for frame_idx in range(NUM_FRAMES):
             output_path = OUTPUT_DIR / f"{OUTPUT_PREFIX}_{frame_idx:04d}.ppm"
+
+            if horizontal_radius > 0.0:
+                # Step the camera azimuth as we advance through the plotfiles.
+                fraction = frame_idx / NUM_FRAMES
+                angle = base_angle + 2.0 * math.pi * fraction
+                frame_camera_eye = (
+                    camera_look_at[0] + horizontal_radius * math.cos(angle),
+                    camera_look_at[1] + rel_eye[1],
+                    camera_look_at[2] + horizontal_radius * math.sin(angle),
+                )
+            else:
+                frame_camera_eye = camera_eye
 
             renderer.render(
                 plotfile=plotfiles[frame_idx],
@@ -108,14 +131,14 @@ def _render_frames() -> None:
                 antialiasing=ANTIALIASING,
                 log_scale=LOG_SCALE,
                 box_transparency=BOX_TRANSPARENCY,
-                scalar_range=scalar_range,
-                camera_eye=camera_eye,
+                camera_eye=frame_camera_eye,
                 camera_look_at=camera_look_at,
                 camera_up=camera_up,
                 camera_fov_y=FOV_Y,
                 camera_near=NEAR_PLANE,
                 camera_far=FAR_PLANE,
-                color_map=color_map,
+#                color_map=color_map,
+#                scalar_range=scalar_range,
             )
     finally:
         if runtime_initialized:
