@@ -28,6 +28,8 @@ class ViskoresVolumeRenderer {
   using AmrBox = minigraphics::volume::AmrBox;
   using VolumeBounds = minigraphics::volume::VolumeBounds;
   using CameraParameters = minigraphics::volume::CameraParameters;
+  using ColorMap = minigraphics::volume::ColorMap;
+  using ColorMapControlPoint = minigraphics::volume::ColorMapControlPoint;
 
   struct RenderParameters {
     int width = 512;
@@ -61,6 +63,7 @@ class ViskoresVolumeRenderer {
     bool exitEarly = false;
     std::optional<CameraParameters> camera;
     std::optional<std::pair<float, float>> scalarRange;
+    std::optional<ColorMap> colorMap;
   };
 
   /// \brief Render the provided scene geometry using the configured compositor.
@@ -72,7 +75,8 @@ class ViskoresVolumeRenderer {
   /// \return 0 on success, non-zero on failure.
   int renderScene(const std::string& outputFilenameBase,
                   const RenderParameters& parameters,
-                  const SceneGeometry& geometry);
+                  const SceneGeometry& geometry,
+                  const std::optional<ColorMap>& colorMap = std::nullopt);
 
   /// \brief Render the provided scene geometry with an explicit camera.
   ///
@@ -85,7 +89,8 @@ class ViskoresVolumeRenderer {
   int renderScene(const std::string& outputFilenameBase,
                   const RenderParameters& parameters,
                   const SceneGeometry& geometry,
-                  const CameraParameters& camera);
+                  const CameraParameters& camera,
+                  const std::optional<ColorMap>& colorMap = std::nullopt);
 
   /// \brief Execute the miniapp using pre-parsed run options.
   int run(const RunOptions& options);
@@ -112,7 +117,8 @@ class ViskoresVolumeRenderer {
              int antialiasing,
              float referenceSampleDistance,
              ImageFull& image,
-             const CameraParameters& camera);
+             const CameraParameters& camera,
+             const ColorMap* colorMap);
   Compositor* getCompositor();
   MPI_Group buildVisibilityOrderedGroup(
       const CameraParameters& camera,
@@ -129,7 +135,8 @@ class ViskoresVolumeRenderer {
                         Compositor* compositor,
                         MPI_Group baseGroup,
                         const CameraParameters& camera,
-                        int trialIndex);
+                        int trialIndex,
+                        const ColorMap* colorMap);
 
   int rank;
   int numProcs;

@@ -1158,7 +1158,8 @@ void ViskoresVolumeRenderer::paint(const AmrBox& box,
                                    int antialiasing,
                                    float referenceSampleDistance,
                                    ImageFull& image,
-                                   const CameraParameters& camera) {
+                                   const CameraParameters& camera,
+                                   const ColorMap* colorMap) {
   static VolumePainterViskores painter;
   painter.paint(box,
                 bounds,
@@ -1169,7 +1170,8 @@ void ViskoresVolumeRenderer::paint(const AmrBox& box,
                 antialiasing,
                 referenceSampleDistance,
                 image,
-                camera);
+                camera,
+                colorMap);
 }
 
 Compositor* ViskoresVolumeRenderer::getCompositor() {
@@ -1195,9 +1197,11 @@ MPI_Group ViskoresVolumeRenderer::buildVisibilityOrderedGroup(
                                      MPI_COMM_WORLD);
 }
 
-int ViskoresVolumeRenderer::renderScene(const std::string& outputFilenameBase,
-                                        const RenderParameters& parameters,
-                                        const SceneGeometry& geometry) {
+int ViskoresVolumeRenderer::renderScene(
+    const std::string& outputFilenameBase,
+    const RenderParameters& parameters,
+    const SceneGeometry& geometry,
+    const std::optional<ColorMap>& colorMap) {
   validateRenderParameters(parameters);
   initialize();
 
@@ -1206,6 +1210,7 @@ int ViskoresVolumeRenderer::renderScene(const std::string& outputFilenameBase,
   const std::pair<float, float> scalarRange =
       geometry.hasScalarRange ? geometry.scalarRange
                               : computeGlobalScalarRange(geometry.localBoxes);
+  const ColorMap* colorMapPtr = colorMap ? &(*colorMap) : nullptr;
 
   Compositor* compositor = getCompositor();
   if (compositor == nullptr) {
@@ -1283,7 +1288,8 @@ int ViskoresVolumeRenderer::renderScene(const std::string& outputFilenameBase,
                                          compositor,
                                          groupGuard.group,
                                          camera,
-                                         trial);
+                                         trial,
+                                         colorMapPtr);
     if (result != 0) {
       return result;
     }
@@ -1292,10 +1298,12 @@ int ViskoresVolumeRenderer::renderScene(const std::string& outputFilenameBase,
   return 0;
 }
 
-int ViskoresVolumeRenderer::renderScene(const std::string& outputFilenameBase,
-                                        const RenderParameters& parameters,
-                                        const SceneGeometry& geometry,
-                                        const CameraParameters& camera) {
+int ViskoresVolumeRenderer::renderScene(
+    const std::string& outputFilenameBase,
+    const RenderParameters& parameters,
+    const SceneGeometry& geometry,
+    const CameraParameters& camera,
+    const std::optional<ColorMap>& colorMap) {
   validateRenderParameters(parameters);
   initialize();
 
@@ -1304,6 +1312,7 @@ int ViskoresVolumeRenderer::renderScene(const std::string& outputFilenameBase,
   const std::pair<float, float> scalarRange =
       geometry.hasScalarRange ? geometry.scalarRange
                               : computeGlobalScalarRange(geometry.localBoxes);
+  const ColorMap* colorMapPtr = colorMap ? &(*colorMap) : nullptr;
 
   Compositor* compositor = getCompositor();
   if (compositor == nullptr) {
@@ -1328,7 +1337,8 @@ int ViskoresVolumeRenderer::renderScene(const std::string& outputFilenameBase,
                                          compositor,
                                          groupGuard.group,
                                          camera,
-                                         trial);
+                                         trial,
+                                         colorMapPtr);
     if (result != 0) {
       return result;
     }
@@ -1346,7 +1356,8 @@ int ViskoresVolumeRenderer::renderSingleTrial(
     Compositor* compositor,
     MPI_Group baseGroup,
     const CameraParameters& camera,
-    int trialIndex) {
+    int trialIndex,
+    const ColorMap* colorMap) {
   const float aspect = static_cast<float>(parameters.width) /
                        static_cast<float>(parameters.height);
   const int sqrtAntialiasing =
@@ -1429,7 +1440,8 @@ int ViskoresVolumeRenderer::renderSingleTrial(
           parameters.antialiasing,
           referenceSampleDistance,
           *layerImage,
-          camera);
+          camera,
+          colorMap);
     depthHints.push_back(computeBoxDepthHint(box, camera));
     localLayers.push_back(std::move(layerImage));
   }
@@ -1574,6 +1586,42 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
     }
   }
 
+  if (options.colorMap) {
+    const auto& colorMap = *options.colorMap;
+    if (colorMap.size() < 2) {
+      throw std::invalid_argument(
+          "color map must provide at least two control points");
+    }
+    float previousValue = -std::numeric_limits<float>::infinity();
+    for (std::size_t index = 0; index < colorMap.size(); ++index) {
+      const auto& point = colorMap[index];
+      if (!std::isfinite(point.value)) {
+        throw std::invalid_argument(
+            "color map control point values must be finite");
+      }
+      if (point.value <= previousValue) {
+        throw std::invalid_argument(
+            "color map control point values must be strictly increasing");
+      }
+      previousValue = point.value;
+
+      const auto validateComponent = [&](float component,
+                                         const char* name) -> void {
+        if (!std::isfinite(component) || component < 0.0f ||
+            component > 1.0f) {
+          throw std::invalid_argument(
+              std::string("color map ") + name +
+              " components must be finite and within [0, 1]");
+        }
+      };
+
+      validateComponent(point.red, "red");
+      validateComponent(point.green, "green");
+      validateComponent(point.blue, "blue");
+      validateComponent(point.alpha, "alpha");
+    }
+  }
+
   if (options.camera) {
     const CameraParameters& camera = *options.camera;
     const auto isFiniteVec3 = [](const Vec3& vector) -> bool {
@@ -1642,10 +1690,14 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
     return renderScene(options.outputFilename,
                        options.parameters,
                        geometry,
-                       *options.camera);
+                       *options.camera,
+                       options.colorMap);
   }
 
-  return renderScene(options.outputFilename, options.parameters, geometry);
+  return renderScene(options.outputFilename,
+                     options.parameters,
+                     geometry,
+                     options.colorMap);
 }
 
 int ViskoresVolumeRenderer::run(int argc, char** argv) {

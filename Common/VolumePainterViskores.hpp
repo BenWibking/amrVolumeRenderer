@@ -39,7 +39,8 @@ class VolumePainterViskores {
              int antialiasing,
              float referenceSampleDistance,
              ImageFull& image,
-             const minigraphics::volume::CameraParameters& camera);
+             const minigraphics::volume::CameraParameters& camera,
+             const minigraphics::volume::ColorMap* colorMap);
 
  private:
   viskores::cont::DataSet boxToDataSet(
@@ -48,7 +49,8 @@ class VolumePainterViskores {
   viskores::cont::ColorTable buildColorTable(
       float alphaScale,
       float normalizationFactor,
-      const std::pair<float, float>& scalarRange) const;
+      const std::pair<float, float>& scalarRange,
+      const minigraphics::volume::ColorMap* colorMap) const;
 
   void setupCamera(viskores::rendering::View3D& view,
                    const minigraphics::volume::CameraParameters& camera);

@@ -77,7 +77,8 @@ void VolumePainterViskores::paint(
     int antialiasing,
     float referenceSampleDistance,
     ImageFull& image,
-    const minigraphics::volume::CameraParameters& camera) {
+    const minigraphics::volume::CameraParameters& camera,
+    const minigraphics::volume::ColorMap* colorMap) {
   try {
     viskores::cont::DataSet dataset = this->boxToDataSet(box);
 
@@ -127,7 +128,8 @@ void VolumePainterViskores::paint(
     viskores::cont::ColorTable colorTable =
         this->buildColorTable(1.0f - boxTransparency,
                               normalizationFactor,
-                              scalarRange);
+                              scalarRange,
+                              colorMap);
 
     viskores::rendering::CanvasRayTracer localCanvas(image.getWidth(),
                                                      image.getHeight());
@@ -222,7 +224,8 @@ viskores::cont::DataSet VolumePainterViskores::boxToDataSet(
 viskores::cont::ColorTable VolumePainterViskores::buildColorTable(
     float alphaScale,
     float normalizationFactor,
-    const std::pair<float, float>& scalarRange) const {
+    const std::pair<float, float>& scalarRange,
+    const minigraphics::volume::ColorMap* colorMap) const {
   const float clampedScale = std::clamp(alphaScale, 0.0f, 1.0f);
   float clampedFactor = normalizationFactor;
   if (!(std::isfinite(clampedFactor))) {
@@ -231,6 +234,40 @@ viskores::cont::ColorTable VolumePainterViskores::buildColorTable(
   clampedFactor = std::max(clampedFactor, 0.0f);
   const double rangeMin = static_cast<double>(scalarRange.first);
   const double rangeMax = static_cast<double>(scalarRange.second);
+
+  const auto computeScaledAlpha = [&](float baseAlpha) -> float {
+    const float scaledBase = std::clamp(baseAlpha * clampedScale, 0.0f, 1.0f);
+    if (clampedFactor <= 0.0f || scaledBase <= 0.0f) {
+      return 0.0f;
+    }
+    if (scaledBase >= 1.0f) {
+      return 1.0f;
+    }
+    const double transmittance =
+        std::pow(1.0 - static_cast<double>(scaledBase),
+                 static_cast<double>(clampedFactor));
+    float scaledAlpha =
+        static_cast<float>(1.0 - transmittance);
+    if (!std::isfinite(scaledAlpha)) {
+      scaledAlpha = scaledBase;
+    }
+    return std::clamp(scaledAlpha, 0.0f, 1.0f);
+  };
+
+  if (colorMap != nullptr && !colorMap->empty()) {
+    viskores::cont::ColorTable customTable;
+    for (const auto& point : *colorMap) {
+      const double position = static_cast<double>(point.value);
+      const Vec3 rgb(std::clamp(point.red, 0.0f, 1.0f),
+                     std::clamp(point.green, 0.0f, 1.0f),
+                     std::clamp(point.blue, 0.0f, 1.0f));
+      const float scaledAlpha = computeScaledAlpha(point.alpha);
+      customTable.AddPoint(position, rgb);
+      customTable.AddPointAlpha(position, scaledAlpha);
+    }
+    return customTable;
+  }
+
   viskores::cont::ColorTable colorTable(
       viskores::cont::ColorTable::Preset::Jet);
   colorTable.ClearAlpha();
@@ -241,24 +278,7 @@ viskores::cont::ColorTable VolumePainterViskores::buildColorTable(
       0.05f, 0.15f, 0.22f, 0.3f, 0.38f, 0.5f};
 
   for (std::size_t i = 0; i < positions.size(); ++i) {
-    const float baseAlpha =
-        std::clamp(alphaValues[i] * clampedScale, 0.0f, 1.0f);
-    float scaledAlpha = 0.0f;
-    if (clampedFactor <= 0.0f || baseAlpha <= 0.0f) {
-      scaledAlpha = 0.0f;
-    } else if (baseAlpha >= 1.0f) {
-      scaledAlpha = 1.0f;
-    } else {
-      const double transmittance =
-          std::pow(1.0 - static_cast<double>(baseAlpha),
-                   static_cast<double>(clampedFactor));
-      scaledAlpha =
-          static_cast<float>(1.0 - transmittance);
-      if (!std::isfinite(scaledAlpha)) {
-        scaledAlpha = baseAlpha;
-      }
-    }
-    scaledAlpha = std::clamp(scaledAlpha, 0.0f, 1.0f);
+    const float scaledAlpha = computeScaledAlpha(alphaValues[i]);
     const double position =
         static_cast<double>(positions[i]) * (rangeMax - rangeMin) + rangeMin;
     colorTable.AddPointAlpha(position, scaledAlpha);

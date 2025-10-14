@@ -4,6 +4,7 @@
 #include <nanobind/stl/array.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/stl/vector.h>
 #include <viskores/VectorAnalysis.h>
 
 #include <ViskoresVolumeRenderer/ViskoresVolumeRenderer.hpp>
@@ -147,7 +148,9 @@ int render_volume(const std::string& plotfilePath,
                   std::optional<std::array<float, 3>> cameraUp = std::nullopt,
                   std::optional<float> cameraFovYDegrees = std::nullopt,
                   std::optional<float> cameraNearPlane = std::nullopt,
-                  std::optional<float> cameraFarPlane = std::nullopt) {
+                  std::optional<float> cameraFarPlane = std::nullopt,
+                  std::optional<std::vector<std::array<float, 5>>> colorMap =
+                      std::nullopt) {
   RuntimeScope runtime;
 
   ViskoresVolumeRenderer::RunOptions options;
@@ -231,6 +234,21 @@ int render_volume(const std::string& plotfilePath,
         eye, lookAt, up, fovY, nearPlane, farPlane};
   }
 
+  if (colorMap) {
+    ViskoresVolumeRenderer::ColorMap controlPoints;
+    controlPoints.reserve(colorMap->size());
+    for (const auto& entry : *colorMap) {
+      ViskoresVolumeRenderer::ColorMapControlPoint point;
+      point.value = entry[0];
+      point.red = entry[1];
+      point.green = entry[2];
+      point.blue = entry[3];
+      point.alpha = entry[4];
+      controlPoints.push_back(point);
+    }
+    options.colorMap = std::move(controlPoints);
+  }
+
   ViskoresVolumeRenderer renderer;
   int exitCode = 0;
   {
@@ -280,8 +298,10 @@ NB_MODULE(miniGraphics_ext, module) {
       nb::arg("camera_fov_y") = nb::none(),
       nb::arg("camera_near") = nb::none(),
       nb::arg("camera_far") = nb::none(),
+      nb::arg("color_map") = nb::none(),
       "Render a plotfile using the DirectSend compositor.\n\n"
       "Parameters mirror the command line flags of the ViskoresVolumeRenderer "
       "executable. Additional keyword arguments allow specifying "
-      "scalar_range=(min, max) and an explicit camera via camera_* options.");
+      "scalar_range=(min, max), an explicit camera via camera_* options, and "
+      "color_map=[(value, r, g, b, a), ...] with physical scalar values.");
 }

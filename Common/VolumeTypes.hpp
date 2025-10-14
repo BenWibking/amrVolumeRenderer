@@ -41,6 +41,16 @@ struct CameraParameters {
   float farPlane;
 };
 
+struct ColorMapControlPoint {
+  float value;
+  float red;
+  float green;
+  float blue;
+  float alpha;
+};
+
+using ColorMap = std::vector<ColorMapControlPoint>;
+
 }  // namespace volume
 }  // namespace minigraphics
 
