@@ -102,8 +102,8 @@ class RuntimeScope {
 
 void initialize_runtime() {
   auto& state = runtimeState();
-  state.manualRefCount++;
   ensure_runtime_initialized();
+  state.manualRefCount++;
 }
 
 void finalize_runtime() {
