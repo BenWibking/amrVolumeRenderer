@@ -29,18 +29,22 @@ FAR_PLANE = 10.0
 
 # Physical scalar -> RGBA ramp used for the volume color map. Values are in the
 # original field units; they are mapped through math.log when LOG_SCALE is True.
-alpha = 2.0
+# Increase contrast further by suppressing diffuse fill and reserving opacity
+# for dense structures and shocks.
 COLOR_MAP_PHYSICAL = [
     (0.0050, 0.00, 0.00, 0.00, 0.00),   # floor: fully transparent
-    (0.0052, 0.05, 0.07, 0.20, 0.02),   # 1–5% tail: faint navy sheen
-    (0.0061, 0.10, 0.20, 0.40, 0.05),   # 10%: tease out wispy filaments
-    (0.074 , 0.05, 0.45, 0.55, 0.12),   # 30%: cool teal accents
-    (0.448, 0.20, 0.70, 0.40, alpha*0.18),   # median (~0.45): soft green mid-tones
-    (2.71 , 0.95, 0.90, 0.25, alpha*0.26),   # 90%: light golden shocks
-    (11.9 , 0.98, 0.55, 0.10, alpha*0.35),   # 99%: semi-transparent orange hotspots
-    (25.6 , 0.85, 0.20, 0.05, alpha*0.38),   # near-peak: deep red highlights
-    (500. , 1.00, 0.95, 0.95, 1.0),
-  ]
+    (0.0058, 0.01, 0.03, 0.15, 0.00),   # negligible halo
+    (0.0075, 0.05, 0.10, 0.28, 0.006),  # hint of structure
+    (0.0120, 0.12, 0.30, 0.58, 0.014),  # thin teal filaments start appearing
+    (0.0300, 0.18, 0.52, 0.74, 0.028),  # emphasize coherent sheets
+    (0.0800, 0.14, 0.72, 0.82, 0.050),  # cooler cyan mid-tones, still restrained
+    (0.2200, 0.26, 0.88, 0.62, 0.075),  # bright greens on dense ridges
+    (0.6500, 0.90, 0.68, 0.24, 0.120),  # warm transition into shocks
+    (1.8000, 1.00, 0.46, 0.10, 0.250),  # glowing oranges for strong shocks
+    (6.5000, 1.00, 0.24, 0.03, 0.600),  # tight crimson highlights
+    (22.0000, 0.98, 0.86, 0.78, 0.65),  # soften approach to the clip region
+    (1.000e3, 1.00, 0.96, 0.94, 1.00),  # controlled roll-off into white
+]
 
 
 def _render_frames(last_only: bool) -> None:
