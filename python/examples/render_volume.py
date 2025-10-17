@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convenience driver for the miniGraphics Python bindings.
+"""Convenience driver for the amrVolumeRenderer Python bindings.
 
 This mirrors the CLI of the ViskoresVolumeRenderer executable but allows the
 workflow to be scripted entirely from Python. Run it under ``mpirun`` to drive
@@ -30,10 +30,10 @@ def _configure_import_path() -> None:
 
 
 try:
-    from miniGraphics import render  # type: ignore[attr-defined]
+    from amrVolumeRenderer import render  # type: ignore[attr-defined]
 except ModuleNotFoundError:
     _configure_import_path()
-    from miniGraphics import render  # type: ignore[attr-defined]
+    from amrVolumeRenderer import render  # type: ignore[attr-defined]
 
 
 def _parse_up_vector(values: Optional[Sequence[float]]) -> Optional[Tuple[float, float, float]]:
@@ -45,7 +45,7 @@ def _parse_up_vector(values: Optional[Sequence[float]]) -> Optional[Tuple[float,
 
 
 def _parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Render a plotfile with miniGraphics.")
+    parser = argparse.ArgumentParser(description="Render a plotfile with amrVolumeRenderer.")
     parser.add_argument("plotfile", type=Path, help="Path to the AMReX plotfile")
     parser.add_argument("--width", type=int, default=512, help="Image width in pixels (default: 512)")
     parser.add_argument("--height", type=int, default=512, help="Image height in pixels (default: 512)")

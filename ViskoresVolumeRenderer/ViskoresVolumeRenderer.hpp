@@ -1,7 +1,7 @@
 #ifndef VISKORES_VOLUME_RENDERER_HPP
 #define VISKORES_VOLUME_RENDERER_HPP
 
-#include <miniGraphicsConfig.h>
+#include <amrVolumeRendererConfig.h>
 #include <mpi.h>
 #include <viskores/Types.h>
 
@@ -14,8 +14,8 @@
 #include <utility>
 #include <vector>
 
-#ifndef MINIGRAPHICS_ENABLE_VISKORES
-#error "ViskoresVolumeRenderer requires MINIGRAPHICS_ENABLE_VISKORES"
+#ifndef AMRVOLUMERENDERER_ENABLE_VISKORES
+#error "ViskoresVolumeRenderer requires AMRVOLUMERENDERER_ENABLE_VISKORES"
 #endif
 
 /// \brief Miniapp that renders distributed volumetric data using Viskores.
@@ -26,11 +26,11 @@ class ViskoresVolumeRenderer {
   /// \brief Execute the miniapp entry point.
   int run(int argc, char** argv);
 
-  using AmrBox = minigraphics::volume::AmrBox;
-  using VolumeBounds = minigraphics::volume::VolumeBounds;
-  using CameraParameters = minigraphics::volume::CameraParameters;
-  using ColorMap = minigraphics::volume::ColorMap;
-  using ColorMapControlPoint = minigraphics::volume::ColorMapControlPoint;
+  using AmrBox = amrVolumeRenderer::volume::AmrBox;
+  using VolumeBounds = amrVolumeRenderer::volume::VolumeBounds;
+  using CameraParameters = amrVolumeRenderer::volume::CameraParameters;
+  using ColorMap = amrVolumeRenderer::volume::ColorMap;
+  using ColorMapControlPoint = amrVolumeRenderer::volume::ColorMapControlPoint;
 
   struct RenderParameters {
     int width = 512;

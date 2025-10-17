@@ -1,10 +1,10 @@
-// miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+// amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 // See LICENSE.txt for details.
 //
 
 #include <Common/VisibilityOrdering.hpp>
 
-#if defined(MINIGRAPHICS_ENABLE_VISKORES)
+#if defined(AMRVOLUMERENDERER_ENABLE_VISKORES)
 
 #include <viskores/Math.h>
 #include <viskores/Matrix.h>
@@ -61,14 +61,14 @@ Matrix4x4 makePerspectiveMatrix(float fovYDegrees,
 }  // namespace
 
 MPI_Group BuildVisibilityOrderedGroup(
-    const minigraphics::volume::CameraParameters& camera,
+    const amrVolumeRenderer::volume::CameraParameters& camera,
     float aspect,
     MPI_Group baseGroup,
     int rank,
     int numProcs,
     bool useVisibilityGraph,
     bool writeVisibilityGraph,
-    const std::vector<minigraphics::volume::AmrBox>& localBoxes,
+    const std::vector<amrVolumeRenderer::volume::AmrBox>& localBoxes,
     MPI_Comm communicator) {
   const Matrix4x4 modelview =
       viskores::rendering::MatrixHelpers::ViewMatrix(camera.eye,
@@ -641,4 +641,4 @@ MPI_Group BuildVisibilityOrderedGroup(
   return orderedGroup;
 }
 
-#endif  // MINIGRAPHICS_ENABLE_VISKORES
+#endif  // AMRVOLUMERENDERER_ENABLE_VISKORES

@@ -5,14 +5,14 @@ requires = [
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "miniGraphics"
+name = "amrVolumeRenderer"
 version = "0.1.0"
-description = "Python bindings for the miniGraphics MPI volume renderer"
+description = "Python bindings for the amrVolumeRenderer MPI volume renderer"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE.TXT" }
 authors = [
-  { name = "miniGraphics developers" },
+  { name = "amrVolumeRenderer developers" },
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -29,13 +29,13 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/lanl/miniGraphics"
+Homepage = "https://github.com/lanl/amrVolumeRenderer"
 
 [tool.scikit-build]
 minimum-version = "0.8"
 cmake.build-type = "Release"
-cmake.define = { MINIGRAPHICS_ENABLE_TESTING = "OFF" }
-wheel.packages = ["python/miniGraphics"]
+cmake.define = { AMRVOLUMERENDERER_ENABLE_TESTING = "OFF" }
+wheel.packages = ["python/amrVolumeRenderer"]
 sdist.include = [
   "CMakeLists.txt",
   "CMake",

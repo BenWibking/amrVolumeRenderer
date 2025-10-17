@@ -1,10 +1,10 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-The miniGraphics suite lives under `DirectSend/` (MPI compositor core), `Common/` (rendering primitives, image types, utilities), `ViskoresVolumeRenderer/` (volume driver miniapp), and the `AMReX/` submodule required for AMR inputs. CMake helpers live in `CMake/`, while generated binaries and intermediates stay inside `build/`. Tests reside in `Common/Testing/` alongside the components they cover. Keep new assets or sample frames in their own subtree to avoid polluting `build/`.
+The amrVolumeRenderer suite lives under `DirectSend/` (MPI compositor core), `Common/` (rendering primitives, image types, utilities), `ViskoresVolumeRenderer/` (volume driver miniapp), and the `AMReX/` submodule required for AMR inputs. CMake helpers live in `CMake/`, while generated binaries and intermediates stay inside `build/`. Tests reside in `Common/Testing/` alongside the components they cover. Keep new assets or sample frames in their own subtree to avoid polluting `build/`.
 
 ## Build, Test, and Development Commands
-Configure once with `cmake -S . -B build -DMINIGRAPHICS_ENABLE_TESTING=ON`. Build using `cmake --build build --target all -j`. Run the sample compositor via `mpirun -np 4 build/bin/DirectSendBase --width=256 --height=256`. Execute the regression suite with `ctest --test-dir build -V`. Use `cmake --build build --target install` only when you need staged artifacts; clean by deleting `build/`.
+Configure once with `cmake -S . -B build -DAMRVOLUMERENDERER_ENABLE_TESTING=ON`. Build using `cmake --build build --target all -j`. Run the sample compositor via `mpirun -np 4 build/bin/DirectSendBase --width=256 --height=256`. Execute the regression suite with `ctest --test-dir build -V`. Use `cmake --build build --target install` only when you need staged artifacts; clean by deleting `build/`.
 
 ## Coding Style & Naming Conventions
 C++ sources follow the repository `.clang-format`, which extends the Google style (two-space indents, wrapped argument lists). Run `clang-format -i DirectSend/Base/*.cpp` before committing. Favor CamelCase for classes and function-style verbs starting with uppercase (e.g., `PostReceives`). Constants use `kName` or `ALL_CAPS`; stick to existing patterns nearby. Keep headers self-contained and prefer `#include <Common/...>` style paths for shared components.

@@ -1,24 +1,24 @@
-## miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+## amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 ## See LICENSE.txt for details.
 ##
 ##
 
 cmake_minimum_required(VERSION 3.10)
 
-include(../CMake/miniGraphicsMacros.cmake)
+include(../CMake/amrVolumeRendererMacros.cmake)
 
 # Allow users to force Viskores usage from the command line.
-set(_miniGraphicsRequireViskores OFF)
-if(DEFINED MINIGRAPHICS_ENABLE_VISKORES)
-  if(MINIGRAPHICS_ENABLE_VISKORES)
-    set(_miniGraphicsRequireViskores ON)
+set(_amrVolumeRendererRequireViskores OFF)
+if(DEFINED AMRVOLUMERENDERER_ENABLE_VISKORES)
+  if(AMRVOLUMERENDERER_ENABLE_VISKORES)
+    set(_amrVolumeRendererRequireViskores ON)
   endif()
 endif()
 
 find_package(Viskores QUIET)
 
-if(NOT Viskores_FOUND AND _miniGraphicsRequireViskores)
-  message(FATAL_ERROR "MINIGRAPHICS_ENABLE_VISKORES=ON but Viskores was not found. "
+if(NOT Viskores_FOUND AND _amrVolumeRendererRequireViskores)
+  message(FATAL_ERROR "AMRVOLUMERENDERER_ENABLE_VISKORES=ON but Viskores was not found. "
                       "Provide Viskores via CMake package discovery to build ViskoresVolumeRenderer.")
 endif()
 
@@ -32,10 +32,10 @@ if(Viskores_FOUND)
   set(AMReX_GPU_BACKEND "NONE" CACHE STRING "Disable AMReX GPU backends" FORCE)
 
   if(NOT TARGET amrex)
-    add_subdirectory(${miniGraphics_SOURCE_DIR}/AMReX ${CMAKE_BINARY_DIR}/AMReX)
+    add_subdirectory(${amrVolumeRenderer_SOURCE_DIR}/AMReX ${CMAKE_BINARY_DIR}/AMReX)
   endif()
 
-  miniGraphics_executable(ViskoresVolumeRenderer
+  amrVolumeRenderer_executable(ViskoresVolumeRenderer
     SOURCES
       ViskoresVolumeRenderer.cpp
       main.cpp
@@ -60,7 +60,7 @@ if(Viskores_FOUND)
   endif()
 
   target_link_libraries(ViskoresVolumeRenderer PRIVATE amrex)
-  target_compile_definitions(ViskoresVolumeRenderer PRIVATE MINIGRAPHICS_ENABLE_VISKORES)
+  target_compile_definitions(ViskoresVolumeRenderer PRIVATE AMRVOLUMERENDERER_ENABLE_VISKORES)
 else()
   message(STATUS "Skipping ViskoresVolumeRenderer (Viskores not found)")
 endif()

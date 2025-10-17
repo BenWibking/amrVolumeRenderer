@@ -22,11 +22,11 @@ def _configure_import_path() -> None:
 
 def _import_renderer():
     try:
-        import miniGraphics  # type: ignore[attr-defined]
+        import amrVolumeRenderer  # type: ignore[attr-defined]
     except ModuleNotFoundError:
         _configure_import_path()
-        import miniGraphics  # type: ignore[attr-defined]
-    return miniGraphics
+        import amrVolumeRenderer  # type: ignore[attr-defined]
+    return amrVolumeRenderer
 
 
 # Hard-coded rendering configuration.

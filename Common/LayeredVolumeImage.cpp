@@ -1,4 +1,4 @@
-// miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+// amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 // See LICENSE.txt for details.
 
 #include <Common/LayeredVolumeImage.hpp>

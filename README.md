@@ -1,6 +1,6 @@
-# miniGraphics
+# amrVolumeRenderer
 
-miniGraphics demonstrates sort-last parallel rendering in an MPI environment.
+amrVolumeRenderer demonstrates sort-last parallel rendering in an MPI environment.
 The miniapp focuses on the DirectSend compositor while sharing rendering
 utilities across a small family of miniapps. DirectSend implements a
 straightforward image compositing path where each rank sends its rendered
@@ -18,7 +18,7 @@ Prerequisites:
 Configure and build in an out-of-source tree:
 
 ```sh
-cmake -S . -B build -DMINIGRAPHICS_ENABLE_TESTING=ON
+cmake -S . -B build -DAMRVOLUMERENDERER_ENABLE_TESTING=ON
 cmake --build build --target all -j
 ```
 
@@ -38,9 +38,9 @@ selection; inspect `--help` for details.
 
 ## Python Bindings
 
-miniGraphics ships a `nanobind`-based Python extension that mirrors the
+amrVolumeRenderer ships a `nanobind`-based Python extension that mirrors the
 command-line options of `ViskoresVolumeRenderer`. Configure as usual and the
-build will additionally emit the module `miniGraphics_ext` alongside a thin
+build will additionally emit the module `amrVolumeRenderer_ext` alongside a thin
 package wrapper under `python/`.
 
 Before configuring, ensure the `nanobind` submodule dependencies are present:
@@ -52,7 +52,7 @@ git submodule update --init --recursive
 Render directly from Python (launch under `mpirun` for multi-rank runs):
 
 ```python
-from miniGraphics import render
+from amrVolumeRenderer import render
 
 render(
     "plt0010",
@@ -98,7 +98,7 @@ image sizes to minimize runtime.
 
 ## License
 
-miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 See `LICENSE.txt` for details.
 
 Copyright (c) 2017

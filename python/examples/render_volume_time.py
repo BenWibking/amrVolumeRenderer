@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import sys
 import glob
-import miniGraphics
+import amrVolumeRenderer
 
 
 # Hard-coded rendering configuration.
@@ -72,7 +72,7 @@ def _render_frames(last_only: bool) -> None:
     base_angle = math.atan2(rel_eye[2], rel_eye[0]) if horizontal_radius > 0.0 else 0.0
 
     try:
-        miniGraphics.initialize_runtime()
+        amrVolumeRenderer.initialize_runtime()
         runtime_initialized = True
 
         frame_indices = (
@@ -94,7 +94,7 @@ def _render_frames(last_only: bool) -> None:
             else:
                 frame_camera_eye = camera_eye
 
-            miniGraphics.render(
+            amrVolumeRenderer.render(
                 plotfile=plotfiles[frame_idx],
                 width=IMAGE_WIDTH,
                 height=IMAGE_HEIGHT,
@@ -114,7 +114,7 @@ def _render_frames(last_only: bool) -> None:
             )
     finally:
         if runtime_initialized:
-            miniGraphics.finalize_runtime()
+            amrVolumeRenderer.finalize_runtime()
 
 
 def main() -> None:

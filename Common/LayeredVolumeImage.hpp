@@ -1,9 +1,9 @@
-// miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+// amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 // See LICENSE.txt for details.
 //
 
-#ifndef MINIGRAPHICS_LAYERED_VOLUME_IMAGE_HPP
-#define MINIGRAPHICS_LAYERED_VOLUME_IMAGE_HPP
+#ifndef AMRVOLUMERENDERER_LAYERED_VOLUME_IMAGE_HPP
+#define AMRVOLUMERENDERER_LAYERED_VOLUME_IMAGE_HPP
 
 #include <Common/Image.hpp>
 #include <Common/ImageRGBAFloatColorDepthSort.hpp>
@@ -56,4 +56,4 @@ class LayeredVolumeImage : public Image, public LayeredImageInterface {
   std::unique_ptr<ImageRGBAFloatColorDepthSort> prototype;
 };
 
-#endif  // MINIGRAPHICS_LAYERED_VOLUME_IMAGE_HPP
+#endif  // AMRVOLUMERENDERER_LAYERED_VOLUME_IMAGE_HPP

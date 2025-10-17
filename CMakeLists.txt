@@ -1,4 +1,4 @@
-## miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+## amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 ## See LICENSE.txt for details.
 ##
 ## Copyright (c) 2017
@@ -8,10 +8,10 @@
 
 cmake_minimum_required(VERSION 3.10)
 
-project(miniGraphics)
+project(amrVolumeRenderer)
 
-option(MINIGRAPHICS_ENABLE_TESTING "Turn on/off building tests." ON)
-if (MINIGRAPHICS_ENABLE_TESTING)
+option(AMRVOLUMERENDERER_ENABLE_TESTING "Turn on/off building tests." ON)
+if (AMRVOLUMERENDERER_ENABLE_TESTING)
   enable_testing()
 endif()
 
@@ -32,7 +32,7 @@ add_subdirectory(nanobind EXCLUDE_FROM_ALL)
 # These macros are not stricly necessary for this top-level CMake file, but
 # by including it here, we can find the necessary packages once and this
 # will significantly speed up when this file is included in subdirectories.
-include(CMake/miniGraphicsMacros.cmake)
+include(CMake/amrVolumeRendererMacros.cmake)
 
 add_subdirectory(ViskoresVolumeRenderer)
 

@@ -41,9 +41,9 @@ namespace {
 
 using Vec3 = viskores::Vec3f_32;
 using Matrix4x4 = viskores::Matrix<viskores::Float32, 4, 4>;
-using minigraphics::volume::AmrBox;
-using minigraphics::volume::CameraParameters;
-using minigraphics::volume::VolumeBounds;
+using amrVolumeRenderer::volume::AmrBox;
+using amrVolumeRenderer::volume::CameraParameters;
+using amrVolumeRenderer::volume::VolumeBounds;
 using viskores::Id;
 
 Vec3 componentMin(const Vec3& a, const Vec3& b) {

@@ -1,13 +1,13 @@
-// miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+// amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 // See LICENSE.txt for details.
 //
 
-#ifndef MINIGRAPHICS_VISIBILITY_ORDERING_HPP
-#define MINIGRAPHICS_VISIBILITY_ORDERING_HPP
+#ifndef AMRVOLUMERENDERER_VISIBILITY_ORDERING_HPP
+#define AMRVOLUMERENDERER_VISIBILITY_ORDERING_HPP
 
-#include <miniGraphicsConfig.h>
+#include <amrVolumeRendererConfig.h>
 
-#if defined(MINIGRAPHICS_ENABLE_VISKORES)
+#if defined(AMRVOLUMERENDERER_ENABLE_VISKORES)
 
 #include <Common/VolumeTypes.hpp>
 
@@ -16,16 +16,16 @@
 #include <vector>
 
 MPI_Group BuildVisibilityOrderedGroup(
-    const minigraphics::volume::CameraParameters& camera,
+    const amrVolumeRenderer::volume::CameraParameters& camera,
     float aspect,
     MPI_Group baseGroup,
     int rank,
     int numProcs,
     bool useVisibilityGraph,
     bool writeVisibilityGraph,
-    const std::vector<minigraphics::volume::AmrBox>& localBoxes,
+    const std::vector<amrVolumeRenderer::volume::AmrBox>& localBoxes,
     MPI_Comm communicator);
 
-#endif  // MINIGRAPHICS_ENABLE_VISKORES
+#endif  // AMRVOLUMERENDERER_ENABLE_VISKORES
 
-#endif  // MINIGRAPHICS_VISIBILITY_ORDERING_HPP
+#endif  // AMRVOLUMERENDERER_VISIBILITY_ORDERING_HPP

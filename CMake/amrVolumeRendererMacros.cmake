@@ -1,4 +1,4 @@
-## miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+## amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 ## See LICENSE.txt for details.
 ##
 ## Copyright (c) 2017
@@ -11,8 +11,8 @@ cmake_minimum_required(VERSION 3.10)
 include(CMakeParseArguments)
 
 # Set up this directory in the CMAKE MODULE PATH
-set(miniGraphics_CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR})
-set(CMAKE_MODULE_PATH ${CMAK$E_MODULE_PATH} ${miniGraphics_CMAKE_MODULE_PATH})
+set(amrVolumeRenderer_CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR})
+set(CMAKE_MODULE_PATH ${CMAK$E_MODULE_PATH} ${amrVolumeRenderer_CMAKE_MODULE_PATH})
 
 # Set up the binary output paths
 set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR}/lib CACHE PATH
@@ -22,8 +22,8 @@ set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/bin CACHE PATH
   "Output directory for building all executables."
   )
 
-# Get the base miniGraphics source dir
-get_filename_component(miniGraphics_SOURCE_DIR
+# Get the base amrVolumeRenderer source dir
+get_filename_component(amrVolumeRenderer_SOURCE_DIR
   ${CMAKE_CURRENT_LIST_DIR}
   DIRECTORY
   )
@@ -31,20 +31,20 @@ get_filename_component(miniGraphics_SOURCE_DIR
 find_package(MPI REQUIRED)
 
 # Create the config header file
-function(miniGraphics_create_config_header miniapp_name)
-  set(MINIGRAPHICS_APP_NAME ${miniapp_name})
-  configure_file(${miniGraphics_CMAKE_MODULE_PATH}/miniGraphicsConfig.h.in
-    ${CMAKE_CURRENT_BINARY_DIR}/miniGraphicsConfig.h
+function(amrVolumeRenderer_create_config_header miniapp_name)
+  set(AMRVOLUMERENDERER_APP_NAME ${miniapp_name})
+  configure_file(${amrVolumeRenderer_CMAKE_MODULE_PATH}/amrVolumeRendererConfig.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/amrVolumeRendererConfig.h
     )
-endfunction(miniGraphics_create_config_header)
+endfunction(amrVolumeRenderer_create_config_header)
 
-# Adds compile features to a given miniGraphics target.
-function(miniGraphics_target_features target_name)
+# Adds compile features to a given amrVolumeRenderer target.
+function(amrVolumeRenderer_target_features target_name)
   set(include_dirs
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${miniGraphics_SOURCE_DIR}
-    ${miniGraphics_SOURCE_DIR}/ThirdParty/glm/include
+    ${amrVolumeRenderer_SOURCE_DIR}
+    ${amrVolumeRenderer_SOURCE_DIR}/ThirdParty/glm/include
     ${MPI_CXX_INCLUDE_PATH}
     )
 
@@ -67,10 +67,10 @@ function(miniGraphics_target_features target_name)
     cxx_std_11
     cxx_raw_string_literals
     )
-endfunction(miniGraphics_target_features)
+endfunction(amrVolumeRenderer_target_features)
 
 # Find the largest power of two less than or equal to the given value.
-function(miniGraphics_find_power_of_two var value)
+function(amrVolumeRenderer_find_power_of_two var value)
   set(power2 1)
   while(power2 LESS value)
     math(EXPR power2 "${power2} * 2")
@@ -79,49 +79,49 @@ function(miniGraphics_find_power_of_two var value)
     math(EXPR power2 "${power2} / 2")
   endif()
   set(${var} ${power2} PARENT_SCOPE)
-endfunction(miniGraphics_find_power_of_two)
+endfunction(amrVolumeRenderer_find_power_of_two)
 
-# Call this function to build one of the miniGraphics miniapps.
+# Call this function to build one of the amrVolumeRenderer miniapps.
 # The first argument is the name of the miniapp. A target with that name will
 # be created. The remaining arguments are source files.
-function(miniGraphics_executable miniapp_name)
+function(amrVolumeRenderer_executable miniapp_name)
   message(STATUS "Adding miniapp ${miniapp_name}")
   set(options DISABLE_TESTS POWER_OF_TWO_ONLY)
   set(oneValueArgs)
   set(multiValueArgs HEADERS SOURCES)
-  cmake_parse_arguments(miniGraphics_executable
+  cmake_parse_arguments(amrVolumeRenderer_executable
     "${options}" "${oneValueArgs}" "${multiValueArgs}"
     ${ARGN}
     )
 
   set(srcs
-    ${miniGraphics_executable_SOURCES}
-    ${miniGraphics_executable_UNPARSED_ARGUMENTS}
+    ${amrVolumeRenderer_executable_SOURCES}
+    ${amrVolumeRenderer_executable_UNPARSED_ARGUMENTS}
     )
 
   set(headers
-    ${CMAKE_CURRENT_BINARY_DIR}/miniGraphicsConfig.h
-    ${miniGraphics_executable_HEADERS}
+    ${CMAKE_CURRENT_BINARY_DIR}/amrVolumeRendererConfig.h
+    ${amrVolumeRenderer_executable_HEADERS}
     )
 
-  miniGraphics_create_config_header(${miniapp_name})
+  amrVolumeRenderer_create_config_header(${miniapp_name})
 
   add_executable(${miniapp_name} ${srcs} ${headers})
 
-  miniGraphics_target_features(${miniapp_name})
+  amrVolumeRenderer_target_features(${miniapp_name})
 
   target_link_libraries(${miniapp_name}
-    PRIVATE miniGraphicsCommon)
+    PRIVATE amrVolumeRendererCommon)
 
   set_source_files_properties(${headers} HEADER_ONLY TRUE)
 
-  if(MINIGRAPHICS_ENABLE_TESTING AND NOT miniGraphics_executable_DISABLE_TESTS)
+  if(AMRVOLUMERENDERER_ENABLE_TESTING AND NOT amrVolumeRenderer_executable_DISABLE_TESTS)
     set(base_options
       --width=110 --height=100
       --yaml-output=test-runs.yaml
       )
-    if(miniGraphics_executable_POWER_OF_TWO_ONLY)
-      miniGraphics_find_power_of_two(np ${MPIEXEC_MAX_NUMPROCS})
+    if(amrVolumeRenderer_executable_POWER_OF_TWO_ONLY)
+      amrVolumeRenderer_find_power_of_two(np ${MPIEXEC_MAX_NUMPROCS})
     else()
       set(np ${MPIEXEC_MAX_NUMPROCS})
     endif()
@@ -148,8 +148,8 @@ function(miniGraphics_executable miniapp_name)
       endforeach(depth_buffer_option)
     endforeach(color_buffer_option)
   endif()
-endfunction(miniGraphics_executable)
+endfunction(amrVolumeRenderer_executable)
 
-if(NOT TARGET miniGraphicsCommon)
-  add_subdirectory(${miniGraphics_SOURCE_DIR}/Common ${CMAKE_BINARY_DIR}/Common)
+if(NOT TARGET amrVolumeRendererCommon)
+  add_subdirectory(${amrVolumeRenderer_SOURCE_DIR}/Common ${CMAKE_BINARY_DIR}/Common)
 endif()

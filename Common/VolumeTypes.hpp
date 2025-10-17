@@ -1,19 +1,19 @@
-// miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+// amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 // See LICENSE.txt for details.
 //
 
-#ifndef MINIGRAPHICS_VOLUME_TYPES_HPP
-#define MINIGRAPHICS_VOLUME_TYPES_HPP
+#ifndef AMRVOLUMERENDERER_VOLUME_TYPES_HPP
+#define AMRVOLUMERENDERER_VOLUME_TYPES_HPP
 
-#include <miniGraphicsConfig.h>
+#include <amrVolumeRendererConfig.h>
 
-#ifdef MINIGRAPHICS_ENABLE_VISKORES
+#ifdef AMRVOLUMERENDERER_ENABLE_VISKORES
 
 #include <viskores/Types.h>
 
 #include <vector>
 
-namespace minigraphics {
+namespace amrVolumeRenderer {
 namespace volume {
 
 struct AmrBox {
@@ -48,8 +48,8 @@ struct ColorMapControlPoint {
 using ColorMap = std::vector<ColorMapControlPoint>;
 
 }  // namespace volume
-}  // namespace minigraphics
+}  // namespace amrVolumeRenderer
 
-#endif  // MINIGRAPHICS_ENABLE_VISKORES
+#endif  // AMRVOLUMERENDERER_ENABLE_VISKORES
 
-#endif  // MINIGRAPHICS_VOLUME_TYPES_HPP
+#endif  // AMRVOLUMERENDERER_VOLUME_TYPES_HPP

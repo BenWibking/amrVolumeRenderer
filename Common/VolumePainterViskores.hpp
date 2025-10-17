@@ -1,13 +1,13 @@
-// miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+// amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 // See LICENSE.txt for details.
 //
 
-#ifndef MINIGRAPHICS_VOLUME_PAINTER_VISKORES_HPP
-#define MINIGRAPHICS_VOLUME_PAINTER_VISKORES_HPP
+#ifndef AMRVOLUMERENDERER_VOLUME_PAINTER_VISKORES_HPP
+#define AMRVOLUMERENDERER_VOLUME_PAINTER_VISKORES_HPP
 
-#include <miniGraphicsConfig.h>
+#include <amrVolumeRendererConfig.h>
 
-#if defined(MINIGRAPHICS_ENABLE_VISKORES)
+#if defined(AMRVOLUMERENDERER_ENABLE_VISKORES)
 
 #include <Common/ImageFull.hpp>
 #include <Common/VolumeTypes.hpp>
@@ -26,8 +26,8 @@ class VolumePainterViskores {
   VolumePainterViskores();
   ~VolumePainterViskores();
 
-  void paint(const minigraphics::volume::AmrBox& box,
-             const minigraphics::volume::VolumeBounds& bounds,
+  void paint(const amrVolumeRenderer::volume::AmrBox& box,
+             const amrVolumeRenderer::volume::VolumeBounds& bounds,
              const std::pair<float, float>& scalarRange,
              int rank,
              int numProcs,
@@ -35,27 +35,27 @@ class VolumePainterViskores {
              int antialiasing,
              float referenceSampleDistance,
              ImageFull& image,
-             const minigraphics::volume::CameraParameters& camera,
-             const minigraphics::volume::ColorMap* colorMap);
+             const amrVolumeRenderer::volume::CameraParameters& camera,
+             const amrVolumeRenderer::volume::ColorMap* colorMap);
 
  private:
   viskores::cont::DataSet boxToDataSet(
-      const minigraphics::volume::AmrBox& box,
+      const amrVolumeRenderer::volume::AmrBox& box,
       const std::pair<float, float>& scalarRange) const;
 
   viskores::cont::ColorTable buildColorTable(
       float alphaScale,
       float normalizationFactor,
       const std::pair<float, float>& scalarRange,
-      const minigraphics::volume::ColorMap* colorMap) const;
+      const amrVolumeRenderer::volume::ColorMap* colorMap) const;
 
   void setupCamera(viskores::rendering::View3D& view,
-                   const minigraphics::volume::CameraParameters& camera);
+                   const amrVolumeRenderer::volume::CameraParameters& camera);
 
   void canvasToImage(const viskores::rendering::Canvas& canvas,
                      ImageFull& image) const;
 };
 
-#endif  // MINIGRAPHICS_ENABLE_VISKORES
+#endif  // AMRVOLUMERENDERER_ENABLE_VISKORES
 
-#endif  // MINIGRAPHICS_VOLUME_PAINTER_VISKORES_HPP
+#endif  // AMRVOLUMERENDERER_VOLUME_PAINTER_VISKORES_HPP

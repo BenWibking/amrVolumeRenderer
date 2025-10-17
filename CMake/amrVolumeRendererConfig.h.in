@@ -1,4 +1,4 @@
-// miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+// amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 // See LICENSE.txt for details.
 //
 // Copyright (c) 2017
@@ -6,9 +6,9 @@
 // the terms of Contract DE-NA0003525 with NTESS, the U.S. Government retains
 // certain rights in this software.
 
-#ifndef MINIGRAPHICSCONFIG_H
-#define MINIGRAPHICSCONFIG_H
+#ifndef AMRVOLUMERENDERERCONFIG_H
+#define AMRVOLUMERENDERERCONFIG_H
 
-#define MINIGRAPHICS_APP_NAME "@MINIGRAPHICS_APP_NAME@"
+#define AMRVOLUMERENDERER_APP_NAME "@AMRVOLUMERENDERER_APP_NAME@"
 
-#endif // MINIGRAPHICSCONFIG_H
+#endif // AMRVOLUMERENDERERCONFIG_H

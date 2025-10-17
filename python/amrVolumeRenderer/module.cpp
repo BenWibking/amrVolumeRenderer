@@ -110,7 +110,7 @@ void finalize_runtime() {
   auto& state = runtimeState();
   if (state.manualRefCount == 0) {
     throw std::runtime_error(
-        "miniGraphics.finalize_runtime requires a matching initialize_runtime call");
+        "amrVolumeRenderer.finalize_runtime requires a matching initialize_runtime call");
   }
   state.manualRefCount--;
   if (state.manualRefCount == 0) {
@@ -261,9 +261,9 @@ int render_volume(const std::string& plotfilePath,
   return exitCode;
 }
 
-NB_MODULE(miniGraphics_ext, module) {
+NB_MODULE(amrVolumeRenderer_ext, module) {
   module.doc() =
-      "Python bindings for the miniGraphics Viskores volume renderer.";
+      "Python bindings for the amrVolumeRenderer Viskores volume renderer.";
 
   module.def(
       "initialize_runtime",

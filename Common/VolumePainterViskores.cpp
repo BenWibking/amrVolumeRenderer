@@ -1,4 +1,4 @@
-// miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+// amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 // See LICENSE.txt for details.
 //
 
@@ -7,7 +7,7 @@
 #include <Common/Color.hpp>
 #include <Common/ImageRGBAFloatColorDepthSort.hpp>
 
-#if defined(MINIGRAPHICS_ENABLE_VISKORES)
+#if defined(AMRVOLUMERENDERER_ENABLE_VISKORES)
 
 #include <viskores/Math.h>
 #include <viskores/Matrix.h>
@@ -122,8 +122,8 @@ VolumePainterViskores::VolumePainterViskores() {
 VolumePainterViskores::~VolumePainterViskores() = default;
 
 void VolumePainterViskores::paint(
-    const minigraphics::volume::AmrBox& box,
-    const minigraphics::volume::VolumeBounds& bounds,
+    const amrVolumeRenderer::volume::AmrBox& box,
+    const amrVolumeRenderer::volume::VolumeBounds& bounds,
     const std::pair<float, float>& scalarRange,
     int rank,
     int numProcs,
@@ -131,8 +131,8 @@ void VolumePainterViskores::paint(
     int antialiasing,
     float referenceSampleDistance,
     ImageFull& image,
-    const minigraphics::volume::CameraParameters& camera,
-    const minigraphics::volume::ColorMap* colorMap) {
+    const amrVolumeRenderer::volume::CameraParameters& camera,
+    const amrVolumeRenderer::volume::ColorMap* colorMap) {
   try {
     viskores::cont::DataSet dataset = this->boxToDataSet(box, scalarRange);
 
@@ -225,7 +225,7 @@ void VolumePainterViskores::paint(
 }
 
 viskores::cont::DataSet VolumePainterViskores::boxToDataSet(
-    const minigraphics::volume::AmrBox& box,
+    const amrVolumeRenderer::volume::AmrBox& box,
     const std::pair<float, float>& scalarRange) const {
   const Vec3 minCorner = box.minCorner;
   const Vec3 maxCorner = box.maxCorner;
@@ -293,7 +293,7 @@ viskores::cont::ColorTable VolumePainterViskores::buildColorTable(
     float alphaScale,
     float normalizationFactor,
     const std::pair<float, float>& scalarRange,
-    const minigraphics::volume::ColorMap* colorMap) const {
+    const amrVolumeRenderer::volume::ColorMap* colorMap) const {
   const float clampedScale = std::clamp(alphaScale, 0.0f, 1.0f);
   float clampedFactor = normalizationFactor;
   if (!(std::isfinite(clampedFactor))) {
@@ -358,7 +358,7 @@ viskores::cont::ColorTable VolumePainterViskores::buildColorTable(
 
 void VolumePainterViskores::setupCamera(
     viskores::rendering::View3D& targetView,
-    const minigraphics::volume::CameraParameters& cameraParams) {
+    const amrVolumeRenderer::volume::CameraParameters& cameraParams) {
   viskores::rendering::Camera camera;
 
   camera.SetPosition(cameraParams.eye);
@@ -407,4 +407,4 @@ void VolumePainterViskores::canvasToImage(
   }
 }
 
-#endif  // MINIGRAPHICS_ENABLE_VISKORES
+#endif  // AMRVOLUMERENDERER_ENABLE_VISKORES

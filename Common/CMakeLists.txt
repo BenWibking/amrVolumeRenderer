@@ -1,4 +1,4 @@
-## miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+## amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 ## See LICENSE.txt for details.
 ##
 ## Copyright (c) 2017
@@ -6,11 +6,11 @@
 ## the terms of Contract DE-NA0003525 with NTESS, the U.S. Government retains
 ## certain rights in this software.
 
-# This file should only be called from miniGraphicsMacros.cmake
+# This file should only be called from amrVolumeRendererMacros.cmake
 
 cmake_minimum_required(VERSION 3.10)
 
-project(miniGraphicsCommon CXX)
+project(amrVolumeRendererCommon CXX)
 
 set(srcs
   Image.cpp
@@ -25,7 +25,7 @@ set(srcs
   )
 
 set(headers
-  ${CMAKE_CURRENT_BINARY_DIR}/miniGraphicsConfig.h
+  ${CMAKE_CURRENT_BINARY_DIR}/amrVolumeRendererConfig.h
   Color.hpp
   Compositor.hpp
   Image.hpp
@@ -49,14 +49,14 @@ set(headers
   Viewport.hpp
   )
 
-miniGraphics_create_config_header("common library")
+amrVolumeRenderer_create_config_header("common library")
 
-add_library(miniGraphicsCommon ${srcs} ${headers})
+add_library(amrVolumeRendererCommon ${srcs} ${headers})
 
 set_source_files_properties(${headers} HEADER_ONLY TRUE)
 
-miniGraphics_target_features(miniGraphicsCommon)
+amrVolumeRenderer_target_features(amrVolumeRendererCommon)
 
-if(MINIGRAPHICS_ENABLE_TESTING)
+if(AMRVOLUMERENDERER_ENABLE_TESTING)
   add_subdirectory(Testing)
 endif()

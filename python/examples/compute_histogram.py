@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compute a histogram of scalar field values for miniGraphics renders.
+"""Compute a histogram of scalar field values for amrVolumeRenderer renders.
 
 This helper loads an AMReX plotfile using the same code path as the renderer
 and reports how the scalar values are distributed after any optional log
@@ -31,16 +31,16 @@ def _configure_import_path() -> None:
 
 def _load_binding() -> Callable[..., Dict[str, object]]:
   try:
-    from miniGraphics import compute_histogram  # type: ignore[attr-defined]
+    from amrVolumeRenderer import compute_histogram  # type: ignore[attr-defined]
     return compute_histogram
   except ModuleNotFoundError:
     _configure_import_path()
     try:
-      from miniGraphics import compute_histogram  # type: ignore[attr-defined]
+      from amrVolumeRenderer import compute_histogram  # type: ignore[attr-defined]
       return compute_histogram
     except ModuleNotFoundError as exc:  # pragma: no cover - defensive
       raise SystemExit(
-          "miniGraphics Python extension not found. Build the project or adjust PYTHONPATH."
+          "amrVolumeRenderer Python extension not found. Build the project or adjust PYTHONPATH."
       ) from exc
 
 

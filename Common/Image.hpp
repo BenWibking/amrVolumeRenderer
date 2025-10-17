@@ -1,4 +1,4 @@
-// miniGraphics is distributed under the OSI-approved BSD 3-clause License.
+// amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
 // See LICENSE.txt for details.
 //
 // Copyright (c) 2017
@@ -9,7 +9,7 @@
 #ifndef IMAGE_HPP
 #define IMAGE_HPP
 
-#include <miniGraphicsConfig.h>
+#include <amrVolumeRendererConfig.h>
 
 #include <assert.h>
 

@@ -1,19 +1,19 @@
 # Viskores Volume Renderer
 
-This miniapp demonstrates volumetric rendering with Viskores' `MapperVolume` combined with miniGraphics' lattice compositing pipeline.
+This miniapp demonstrates volumetric rendering with Viskores' `MapperVolume` combined with amrVolumeRenderer's lattice compositing pipeline.
 
 ## Overview
 
 - Each MPI rank owns a collection of non-overlapping AMR boxes (uniform bricks with their own cell spacing).
 - Every box is passed directly to Viskores as an individual uniform dataset built from the provided cell-centered values.
-- Viskores' volume mapper shades each brick while miniGraphics' DirectSend compositor blends the per-rank renders after visibility ordering.
+- Viskores' volume mapper shades each brick while amrVolumeRenderer's DirectSend compositor blends the per-rank renders after visibility ordering.
 
 ## Building
 
 The target builds only when Viskores is discoverable by CMake.
 
 ```bash
-cmake -S . -B build -DMINIGRAPHICS_ENABLE_VISKORES=ON -DViskores_DIR=/path/to/viskores
+cmake -S . -B build -DAMRVOLUMERENDERER_ENABLE_VISKORES=ON -DViskores_DIR=/path/to/viskores
 cmake --build build --target ViskoresVolumeRenderer -j
 ```
 
