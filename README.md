@@ -6,6 +6,8 @@ distributed-memory platforms using MPI, consumes native AMReX plotfiles, and
 exposes its full rendering pipeline through a scriptable Python API for
 offline batch jobs, interactive exploration, and automated regression testing.
 
+![Rendered turbulent volume](turb_render.png)
+
 ## Highlights
 
 - Scalable DirectSend compositing path tuned for AMR workloads and large node counts.
