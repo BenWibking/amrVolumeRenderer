@@ -1,6 +1,6 @@
 # amrVolumeRenderer
 
-amrVolumeRenderer is a production-ready, parallel volume renderer for
+amrVolumeRenderer is a parallel volume renderer for
 block-structured AMR data written with AMReX. The system runs efficiently on
 distributed-memory platforms using MPI, consumes native AMReX plotfiles, and
 exposes its full rendering pipeline through a scriptable Python API for
@@ -11,7 +11,7 @@ offline batch jobs, interactive exploration, and automated regression testing.
 - Scalable DirectSend compositing path tuned for AMR workloads and large node counts.
 - Zero-copy ingestion of AMReX plotfiles, including multi-level refinement control.
 - Hybrid C++/Python driver model: drive renders from MPI-enabled Python scripts or native binaries.
-- Deterministic outputs with shared image formats for reproducible production workflows.
+- Deterministic outputs with shared image formats for reproducible workflows.
 - Optional regression suite to validate compositing and sampling logic on each change.
 
 ## Quick Start
