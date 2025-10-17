@@ -46,6 +46,64 @@ using Vec4 = viskores::Vec4f_32;
 using Matrix4x4 = viskores::Matrix<viskores::Float32, 4, 4>;
 
 constexpr const char kDensityFieldName[] = "density";
+constexpr float kSoftClipTolerance = 1e-5f;
+
+float saturateSoftTail(float value,
+                       float clipStart,
+                       float rolloffEnd) {
+  const float clampedEnd = std::max(clipStart, rolloffEnd);
+  if (!(clampedEnd > clipStart + kSoftClipTolerance)) {
+    return std::clamp(value, 0.0f, clampedEnd);
+  }
+  float clampedValue = std::clamp(value, 0.0f, clampedEnd);
+  if (!(clampedValue > clipStart)) {
+    return clampedValue;
+  }
+  if (!(clampedValue < clampedEnd)) {
+    return clampedEnd;
+  }
+  const float normalized =
+      (clampedValue - clipStart) / (clampedEnd - clipStart);
+  const float smooth =
+      normalized + normalized * normalized - normalized * normalized * normalized;
+  return clipStart + (clampedEnd - clipStart) * smooth;
+}
+
+bool shouldApplySoftClip(const std::vector<float>& values,
+                         float clipStart,
+                         float rolloffEnd) {
+  if (!(rolloffEnd > clipStart + kSoftClipTolerance)) {
+    return false;
+  }
+  for (float value : values) {
+    if (!std::isfinite(value)) {
+      continue;
+    }
+    if (value > clipStart) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void applySoftClip(std::vector<float>& values,
+                   float clipStart,
+                   float rolloffEnd) {
+  if (!(rolloffEnd > clipStart + kSoftClipTolerance)) {
+    for (float& value : values) {
+      if (std::isfinite(value)) {
+        value = std::clamp(value, 0.0f, rolloffEnd);
+      }
+    }
+    return;
+  }
+  for (float& value : values) {
+    if (!std::isfinite(value)) {
+      continue;
+    }
+    value = saturateSoftTail(value, clipStart, rolloffEnd);
+  }
+}
 
 class View3DNoColorBar : public viskores::rendering::View3D {
  public:
@@ -80,7 +138,7 @@ void VolumePainterViskores::paint(
     const minigraphics::volume::CameraParameters& camera,
     const minigraphics::volume::ColorMap* colorMap) {
   try {
-    viskores::cont::DataSet dataset = this->boxToDataSet(box);
+    viskores::cont::DataSet dataset = this->boxToDataSet(box, scalarRange);
 
     const Vec3 span = box.maxCorner - box.minCorner;
     Vec3 spacing(0.0f);
@@ -171,7 +229,8 @@ void VolumePainterViskores::paint(
 }
 
 viskores::cont::DataSet VolumePainterViskores::boxToDataSet(
-    const minigraphics::volume::AmrBox& box) const {
+    const minigraphics::volume::AmrBox& box,
+    const std::pair<float, float>& scalarRange) const {
   const Vec3 minCorner = box.minCorner;
   const Vec3 maxCorner = box.maxCorner;
   const Vec3 span = maxCorner - minCorner;
@@ -213,9 +272,22 @@ viskores::cont::DataSet VolumePainterViskores::boxToDataSet(
 
   viskores::cont::DataSet dataset = builder.Create(pointDims, origin, spacing);
 
+  const float clipStart =
+      std::clamp(scalarRange.second, 0.0f, 1.0f);
+  std::vector<float> adjustedValues;
+  const bool applyClip =
+      shouldApplySoftClip(box.cellValues, clipStart, 1.0f);
+  if (applyClip) {
+    adjustedValues = box.cellValues;
+    applySoftClip(adjustedValues, clipStart, 1.0f);
+  }
+
+  const std::vector<float>& sourceValues =
+      applyClip ? adjustedValues : box.cellValues;
+
   dataset.AddCellField(
       kDensityFieldName,
-      viskores::cont::make_ArrayHandle(box.cellValues,
+      viskores::cont::make_ArrayHandle(sourceValues,
                                        viskores::CopyFlag::On));
 
   return dataset;

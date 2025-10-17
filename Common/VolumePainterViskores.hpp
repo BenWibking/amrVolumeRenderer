@@ -44,7 +44,8 @@ class VolumePainterViskores {
 
  private:
   viskores::cont::DataSet boxToDataSet(
-      const minigraphics::volume::AmrBox& box) const;
+      const minigraphics::volume::AmrBox& box,
+      const std::pair<float, float>& scalarRange) const;
 
   viskores::cont::ColorTable buildColorTable(
       float alphaScale,
