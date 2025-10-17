@@ -6,33 +6,11 @@ import os
 from pathlib import Path
 import sys
 import glob
-
-
-def _configure_import_path() -> None:
-    """Allow running the example from a source checkout without installing."""
-    repo_root = Path(__file__).resolve().parents[2]
-    candidate_paths = [
-        repo_root / "python",
-        repo_root / "build/lib",
-        repo_root / "build/python",
-    ]
-    for path in candidate_paths:
-        if path.exists() and str(path) not in sys.path:
-            sys.path.append(str(path))
-
-
-def _import_renderer():
-    try:
-        import miniGraphics  # type: ignore[attr-defined]
-    except ModuleNotFoundError:
-        _configure_import_path()
-        import miniGraphics  # type: ignore[attr-defined]
-    return miniGraphics
+import miniGraphics
 
 
 # Hard-coded rendering configuration.
-#PLOTFILE_GLOB = "../quokka-turb-driving/tests/mach_10_v2/plt*"
-PLOTFILE_GLOB = "../quokka/tests/plt*"
+PLOTFILE_GLOB = "../quokka-turb-driving/tests/mach_10_v2/plt*"
 VARIABLE = "gasDensity"
 IMAGE_WIDTH = 512
 IMAGE_HEIGHT = 512
@@ -40,10 +18,9 @@ OUTPUT_DIR = Path("renders")
 OUTPUT_PREFIX = "render"
 ANTIALIASING = 4
 BOX_TRANSPARENCY = 0.975
-LOG_SCALE = False
+LOG_SCALE = True
 CAMERA_EYE = (2.0, 1.2, 2.0)
-#CAMERA_LOOK_AT = (0.5, 0.5, 0.5)
-CAMERA_LOOK_AT = (0., 0., 0.)
+CAMERA_LOOK_AT = (0.5, 0.5, 0.5)
 CAMERA_UP = (0.0, 1.0, 0.0)
 FOV_Y = 45.0
 NEAR_PLANE = 0.1
@@ -53,11 +30,11 @@ FAR_PLANE = 10.0
 # original field units; they are mapped through math.log when LOG_SCALE is True.
 COLOR_MAP_PHYSICAL = [
     (1.0e-1, 0.04, 0.05, 0.20, 0.00),
-    (1.0e0, 0.10, 0.35, 0.70, 0.20),
-    (1.0e1, 0.25, 0.70, 0.90, 0.45),
-    (1.0e2, 0.65, 0.85, 0.60, 0.65),
-    (1.0e3, 0.98, 0.65, 0.30, 0.85),
-    (1.0e4, 1.00, 0.98, 0.95, 1.00),
+    (1.0e0, 0.10, 0.35, 0.70, 0.01),
+    (1.0e1, 0.25, 0.70, 0.90, 0.02),
+    (1.0e2, 0.65, 0.85, 0.60, 0.03),
+    (1.0e3, 0.98, 0.65, 0.30, 0.05),
+    (1.0e4, 1.00, 0.98, 0.95, 0.50),
 ]
 
 
@@ -76,9 +53,7 @@ def _build_color_map(log_scale: bool):
 
 
 def _render_frames() -> None:
-    renderer = _import_renderer()
     runtime_initialized = False
-
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     camera_eye = CAMERA_EYE
@@ -104,7 +79,7 @@ def _render_frames() -> None:
     base_angle = math.atan2(rel_eye[2], rel_eye[0]) if horizontal_radius > 0.0 else 0.0
 
     try:
-        renderer.initialize_runtime()
+        miniGraphics.initialize_runtime()
         runtime_initialized = True
 
         for frame_idx in range(NUM_FRAMES):
@@ -122,7 +97,7 @@ def _render_frames() -> None:
             else:
                 frame_camera_eye = camera_eye
 
-            renderer.render(
+            miniGraphics.render(
                 plotfile=plotfiles[frame_idx],
                 width=IMAGE_WIDTH,
                 height=IMAGE_HEIGHT,
@@ -137,12 +112,12 @@ def _render_frames() -> None:
                 camera_fov_y=FOV_Y,
                 camera_near=NEAR_PLANE,
                 camera_far=FAR_PLANE,
-#                color_map=color_map,
-#                scalar_range=scalar_range,
+                color_map=color_map,
+                scalar_range=scalar_range,
             )
     finally:
         if runtime_initialized:
-            renderer.finalize_runtime()
+            miniGraphics.finalize_runtime()
 
 
 def main() -> None:

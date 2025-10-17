@@ -1,0 +1,50 @@
+[build-system]
+requires = [
+  "scikit-build-core>=0.8.0",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "miniGraphics"
+version = "0.1.0"
+description = "Python bindings for the miniGraphics MPI volume renderer"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE.TXT" }
+authors = [
+  { name = "miniGraphics developers" },
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: BSD License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/lanl/miniGraphics"
+
+[tool.scikit-build]
+minimum-version = "0.8"
+cmake.build-type = "Release"
+cmake.define = { MINIGRAPHICS_ENABLE_TESTING = "OFF" }
+wheel.packages = ["python/miniGraphics"]
+sdist.include = [
+  "CMakeLists.txt",
+  "CMake",
+  "Common",
+  "DirectSend",
+  "python",
+  "ViskoresVolumeRenderer",
+  "nanobind",
+  "AMReX",
+  "LICENSE.TXT",
+  "README.md",
+]

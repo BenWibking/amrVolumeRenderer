@@ -45,3 +45,9 @@ target_compile_definitions(miniGraphics_ext PRIVATE MINIGRAPHICS_ENABLE_VISKORES
 set_target_properties(miniGraphics_ext PROPERTIES
   OUTPUT_NAME "miniGraphics_ext"
 )
+
+install(TARGETS miniGraphics_ext
+  LIBRARY DESTINATION miniGraphics
+  RUNTIME DESTINATION miniGraphics
+  ARCHIVE DESTINATION miniGraphics
+)
