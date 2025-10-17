@@ -10,12 +10,10 @@
 #include "DirectSendBase.hpp"
 
 #include <Common/LayeredImageInterface.hpp>
-
 #include <algorithm>
 #include <cassert>
 #include <limits>
 #include <memory>
-#include <numeric>
 #include <vector>
 
 constexpr int DEFAULT_MAX_IMAGE_SPLIT = 1000000;
@@ -26,6 +24,12 @@ struct LayerEntry {
   float depth;
   int owningRank;
   int localIndex;
+};
+
+struct IncomingDirectSendImage {
+  std::unique_ptr<Image> imageBuffer;
+  std::vector<MPI_Request> receiveRequests;
+  enum Status { WAITING, READY, EMPTY } status = WAITING;
 };
 
 }  // namespace
@@ -63,15 +67,14 @@ static void PostReceives(
     MPI_Group sendGroup,
     MPI_Group recvGroup,
     MPI_Comm communicator,
-    std::vector<MPI_Request>& requestsOut,
-    std::vector<std::unique_ptr<const Image>>& incomingImagesOut) {
-  int localRank;
-  MPI_Comm_rank(communicator, &localRank);
+    std::vector<IncomingDirectSendImage>& incomingImagesOut) {
   int recvGroupRank;
   MPI_Group_rank(recvGroup, &recvGroupRank);
   if (recvGroupRank == MPI_UNDEFINED) {
     // I am not receiving anything. Just create an "empty" incoming image
-    incomingImagesOut.push_back(localImage->window(0, 0));
+    incomingImagesOut.resize(1);
+    incomingImagesOut[0].imageBuffer = localImage->copySubrange(0, 0);
+    incomingImagesOut[0].status = IncomingDirectSendImage::READY;
     return;
   }
   int recvGroupSize;
@@ -94,19 +97,22 @@ static void PostReceives(
   for (int sendGroupIndex = 0; sendGroupIndex < sendGroupSize;
        ++sendGroupIndex) {
     if (sendGroupIndex != sendGroupRank) {
-      int sourceRank =
-          getRealRank(sendGroup, sendGroupIndex, communicator);
-      std::unique_ptr<Image> recvImageBuffer =
+      int sourceRank = getRealRank(sendGroup, sendGroupIndex, communicator);
+      incomingImagesOut[sendGroupIndex].imageBuffer =
           localImage->createNew(rangeBegin, rangeEnd);
-      std::vector<MPI_Request> newRequests = recvImageBuffer->IReceive(
-          sourceRank, communicator);
-      requestsOut.insert(
-          requestsOut.end(), newRequests.begin(), newRequests.end());
-      incomingImagesOut[sendGroupIndex].reset(recvImageBuffer.release());
+      incomingImagesOut[sendGroupIndex].receiveRequests =
+          incomingImagesOut[sendGroupIndex].imageBuffer->IReceive(sourceRank,
+                                                                  communicator);
+      incomingImagesOut[sendGroupIndex].status =
+          IncomingDirectSendImage::WAITING;
     } else {
       // "Sending" to self. Just record a shallow copy of the image.
-      incomingImagesOut[sendGroupIndex] =
+      std::unique_ptr<const Image> selfSendImage =
           localImage->window(rangeBegin, rangeEnd);
+      incomingImagesOut[sendGroupIndex].receiveRequests.clear();
+      incomingImagesOut[sendGroupIndex].imageBuffer.reset(
+          const_cast<Image*>(selfSendImage.release()));
+      incomingImagesOut[sendGroupIndex].status = IncomingDirectSendImage::READY;
     }
   }
 }
@@ -118,8 +124,6 @@ static void PostSends(
     MPI_Comm communicator,
     std::vector<MPI_Request>& requestsOut,
     std::vector<std::unique_ptr<const Image>>& outgoingImagesOut) {
-  int localRank;
-  MPI_Comm_rank(communicator, &localRank);
   int sendGroupRank;
   MPI_Group_rank(sendGroup, &sendGroupRank);
   if (sendGroupRank == MPI_UNDEFINED) {
@@ -147,10 +151,9 @@ static void PostSends(
                     rangeEnd);
       std::unique_ptr<const Image> outImage =
           localImage->window(rangeBegin, rangeEnd);
-      int destRank =
-          getRealRank(recvGroup, recvGroupIndex, communicator);
-      std::vector<MPI_Request> newRequests = outImage->ISend(
-          destRank, communicator);
+      int destRank = getRealRank(recvGroup, recvGroupIndex, communicator);
+      std::vector<MPI_Request> newRequests =
+          outImage->ISend(destRank, communicator);
       requestsOut.insert(
           requestsOut.end(), newRequests.begin(), newRequests.end());
       outgoingImagesOut[recvGroupIndex].swap(outImage);
@@ -161,39 +164,82 @@ static void PostSends(
 }
 
 static std::unique_ptr<Image> ProcessIncomingImages(
-    std::vector<MPI_Request>& requests,
-    std::vector<std::unique_ptr<const Image>>& incomingImages) {
-  if (requests.size() > 0) {
-    MPI_Waitall(requests.size(), requests.data(), MPI_STATUSES_IGNORE);
+    std::vector<IncomingDirectSendImage>& incoming) {
+  assert(!incoming.empty());
+
+  // Collect the last request for each incoming image. We will wait for these
+  // last requests to see which image gets here first.
+  std::vector<MPI_Request> lastRequests;
+  lastRequests.reserve(incoming.size());
+  int numPending = 0;
+  for (auto& in : incoming) {
+    switch (in.status) {
+      case IncomingDirectSendImage::WAITING:
+        lastRequests.push_back(in.receiveRequests.back());
+        in.receiveRequests.pop_back();
+        ++numPending;
+        break;
+      case IncomingDirectSendImage::READY:
+      case IncomingDirectSendImage::EMPTY:
+        assert(in.receiveRequests.empty());
+        lastRequests.push_back(MPI_REQUEST_NULL);
+        break;
+    }
   }
 
-  assert(incomingImages.size() > 0);
-  if (incomingImages.size() == 1) {
-    // Unexpected corner case where there is just one image.
-    return incomingImages[0]->deepCopy();
+  while (numPending > 0) {
+    int receiveIndex;
+    MPI_Waitany(lastRequests.size(),
+                lastRequests.data(),
+                &receiveIndex,
+                MPI_STATUSES_IGNORE);
+    --numPending;
+    // Make sure all the messages have come in
+    MPI_Waitall(incoming[receiveIndex].receiveRequests.size(),
+                incoming[receiveIndex].receiveRequests.data(),
+                MPI_STATUSES_IGNORE);
+    incoming[receiveIndex].status = IncomingDirectSendImage::READY;
+
+    // Check all incoming images and find candidates to blend
+    for (auto targetIn = incoming.begin(); targetIn != incoming.end();
+         ++targetIn) {
+      if (targetIn->status == IncomingDirectSendImage::READY) {
+        // This image is ready to blend. Find any other images that can be
+        // blended with it.
+        for (auto sourceIn = targetIn + 1; sourceIn != incoming.end();
+             ++sourceIn) {
+          if (sourceIn->status == IncomingDirectSendImage::READY) {
+            // Blend these two images together. Store the result in target and
+            // zero out the source.
+            targetIn->imageBuffer =
+                targetIn->imageBuffer->blend(*sourceIn->imageBuffer);
+            sourceIn->status = IncomingDirectSendImage::EMPTY;
+            sourceIn->imageBuffer.reset();
+          } else if (sourceIn->status == IncomingDirectSendImage::WAITING) {
+            if (targetIn->imageBuffer->blendIsOrderDependent()) {
+              // If blend is order dependent, we cannot blend any other images
+              break;
+            }
+          } else {
+            // Just skip over empty images.
+          }
+        }
+      }
+    }
   }
 
-  std::unique_ptr<Image> workingImage =
-      incomingImages[0]->blend(*incomingImages[1]);
-  for (int imageIndex = 2; imageIndex < incomingImages.size(); ++imageIndex) {
-    workingImage = workingImage->blend(*incomingImages[imageIndex]);
-  }
+  // Resulting image should be in first incoming state.
+  assert(incoming.front().status == IncomingDirectSendImage::READY);
 
-  return workingImage;
+  return std::unique_ptr<Image>(incoming.front().imageBuffer.release());
 }
 
 std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
                                                MPI_Group sendGroup,
                                                MPI_Group recvGroup,
                                                MPI_Comm communicator) {
-  std::vector<MPI_Request> recvRequests;
-  std::vector<std::unique_ptr<const Image>> incomingImages;
-  PostReceives(localImage,
-               sendGroup,
-               recvGroup,
-               communicator,
-               recvRequests,
-               incomingImages);
+  std::vector<IncomingDirectSendImage> incomingImages;
+  PostReceives(localImage, sendGroup, recvGroup, communicator, incomingImages);
 
   std::vector<MPI_Request> sendRequests;
   std::vector<std::unique_ptr<const Image>> outgoingImages;
@@ -204,8 +250,7 @@ std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
             sendRequests,
             outgoingImages);
 
-  std::unique_ptr<Image> resultImage =
-      ProcessIncomingImages(recvRequests, incomingImages);
+  std::unique_ptr<Image> resultImage = ProcessIncomingImages(incomingImages);
 
   if (sendRequests.size() > 0) {
     MPI_Waitall(sendRequests.size(), sendRequests.data(), MPI_STATUSES_IGNORE);
@@ -250,7 +295,8 @@ std::unique_ptr<Image> DirectSendBase::composeLayered(
   MPI_Comm_rank(communicator, &communicatorRank);
 
   int localLayerCount = layers.getLayerCount();
-  std::vector<int> allLayerCounts(static_cast<std::size_t>(communicatorSize), 0);
+  std::vector<int> allLayerCounts(static_cast<std::size_t>(communicatorSize),
+                                  0);
   MPI_Allgather(&localLayerCount,
                 1,
                 MPI_INT,
@@ -259,8 +305,8 @@ std::unique_ptr<Image> DirectSendBase::composeLayered(
                 MPI_INT,
                 communicator);
 
-  std::vector<int> layerDisplacements(static_cast<std::size_t>(communicatorSize),
-                                      0);
+  std::vector<int> layerDisplacements(
+      static_cast<std::size_t>(communicatorSize), 0);
   int totalLayerCount = 0;
   for (int proc = 0; proc < communicatorSize; ++proc) {
     layerDisplacements[static_cast<std::size_t>(proc)] = totalLayerCount;
@@ -341,7 +387,8 @@ std::unique_ptr<Image> DirectSendBase::composeLayered(
         localLayerImage = layers.getLayer(firstLocalIndex);
       } else {
         combinedLocalLayers = layers.getLayer(firstLocalIndex)->deepCopy();
-        for (std::size_t runIndex = runStart + 1; runIndex < index; ++runIndex) {
+        for (std::size_t runIndex = runStart + 1; runIndex < index;
+             ++runIndex) {
           const int nextLocalIndex = globalOrder[runIndex].localIndex;
           combinedLocalLayers =
               combinedLocalLayers->blend(*layers.getLayer(nextLocalIndex));
