@@ -101,6 +101,7 @@ keeping image sizes small for fast turnaround.
 
 The DirectSend compositor implementation and benchmarking harnesses draw on prior
 work contributed to the miniGraphics repository (https://github.com/sandialabs/miniGraphics).
+We thank Kenneth Moreland for making this implementation available.
 
 ## License
 
