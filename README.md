@@ -1,100 +1,106 @@
 # amrVolumeRenderer
 
-amrVolumeRenderer demonstrates sort-last parallel rendering in an MPI environment.
-The miniapp focuses on the DirectSend compositor while sharing rendering
-utilities across a small family of miniapps. DirectSend implements a
-straightforward image compositing path where each rank sends its rendered
-image directly to a designated compositor; variants exercise different
-communication overlap strategies.
+amrVolumeRenderer is a production-ready, parallel volume renderer for
+block-structured AMR data written with AMReX. The system runs efficiently on
+distributed-memory platforms using MPI, consumes native AMReX plotfiles, and
+exposes its full rendering pipeline through a scriptable Python API for
+offline batch jobs, interactive exploration, and automated regression testing.
 
-## Build
+## Highlights
 
-Prerequisites:
+- Scalable DirectSend compositing path tuned for AMR workloads and large node counts.
+- Zero-copy ingestion of AMReX plotfiles, including multi-level refinement control.
+- Hybrid C++/Python driver model: drive renders from MPI-enabled Python scripts or native binaries.
+- Deterministic outputs with shared image formats for reproducible production workflows.
+- Optional regression suite to validate compositing and sampling logic on each change.
 
-  * CMake 3.3+
-  * A C++11 compliant compiler
-  * MPI implementation and launcher (e.g., OpenMPI, MPICH)
+## Quick Start
 
-Configure and build in an out-of-source tree:
+1. Clone the repository and initialize submodules (includes AMReX and Python bindings):
+
+   ```sh
+   git clone https://github.com/<your-org>/amrVolumeRenderer.git
+   cd amrVolumeRenderer
+   git submodule update --init --recursive
+   ```
+
+2. Configure and build out-of-source:
+
+   ```sh
+   cmake -S . -B build -DAMRVOLUMERENDERER_ENABLE_TESTING=ON
+   cmake --build build --target all -j
+   ```
+
+   Requirements: CMake 3.3+, a C++11 (or newer) compiler, and an MPI
+   implementation such as OpenMPI or MPICH.
+
+3. Launch the reference DirectSend compositor (replace `plt0010` with your AMReX plotfile):
+
+   ```sh
+   mpirun -np 4 build/bin/DirectSendBase --input=plt0010 --width=512 --height=512
+   ```
+
+   Pass `--help` to list all rendering and AMR selection options.
+
+## Python API
+
+amrVolumeRenderer builds a `nanobind`-based extension named `amrVolumeRenderer_ext`
+and ships a thin Python package under `python/`. After configuring with CMake,
+install the package into your environment:
 
 ```sh
-cmake -S . -B build -DAMRVOLUMERENDERER_ENABLE_TESTING=ON
-cmake --build build --target all -j
+python -m venv .venv
+source .venv/bin/activate
+pip install -e python
 ```
 
-Re-run the `cmake --build` command after making source changes. Generated
-artifacts stay under `build/`, which can be removed safely when starting fresh.
-
-## Run
-
-Launch the reference DirectSend compositor locally with four MPI ranks:
-
-```sh
-mpirun -np 4 build/bin/DirectSendBase --width=256 --height=256
-```
-
-The executable accepts additional options for image dimensions and scene
-selection; inspect `--help` for details.
-
-## Python Bindings
-
-amrVolumeRenderer ships a `nanobind`-based Python extension that mirrors the
-command-line options of `ViskoresVolumeRenderer`. Configure as usual and the
-build will additionally emit the module `amrVolumeRenderer_ext` alongside a thin
-package wrapper under `python/`.
-
-Before configuring, ensure the `nanobind` submodule dependencies are present:
-
-```sh
-git submodule update --init --recursive
-```
-
-Render directly from Python (launch under `mpirun` for multi-rank runs):
+Render directly from Python (use `mpirun` for multi-rank jobs):
 
 ```python
 from amrVolumeRenderer import render
 
 render(
-    "plt0010",
-    width=512,
-    height=512,
-    box_transparency=0.15,
-    antialiasing=4,
-    visibility_graph=True,
-    write_visibility_graph=False,
+    input_path="plt0010",
+    output_path="volume.ppm",
+    width=1024,
+    height=1024,
     min_level=0,
     max_level=-1,
-    log_scale=False,
-    up_vector=(0.0, 1.0, 0.0),
-    output="volume.ppm",
+    antialiasing=4,
+    box_transparency=0.15,
+    visibility_graph=True,
 )
 ```
 
-All keyword arguments map 1:1 to the CLI flags and fall back to the same
-defaults when omitted. The binding automatically initializes MPI/AMReX on-demand
-and finalizes them when it set them up.
+Keyword arguments mirror the CLI flags exposed by `DirectSendBase` and
+`ViskoresVolumeRenderer`. The module initializes and finalizes MPI/AMReX on
+demand when run inside a Python interpreter.
 
-## Test
+## Testing
 
-Enable testing during configuration (see Build) and run the regression suite:
+Keep tests enabled during configuration (`-DAMRVOLUMERENDERER_ENABLE_TESTING=ON`)
+and execute the regression suite regularly:
 
 ```sh
 ctest --test-dir build -V
 ```
 
-The suite drives the MPI matrix defined in `CTestTestfile.cmake`; expect small
-image sizes to minimize runtime.
+The suite exercises the compositor across representative MPI matrices while
+keeping image sizes small for fast turnaround.
 
 ## Repository Layout
 
-  * `DirectSend/` DirectSend compositor implementations and shared utilities.
-    - `DirectSend/Base/` Primary compositing path used by the sample app.
-  * `Common/` Shared rendering primitives, image buffers, and utilities.
-  * `ViskoresVolumeRenderer/` Example miniapp that drives the compositor with Viskores.
-  * `Reference/` Sample configurations and reference imagery.
-  * `ThirdParty/` Vendored headers (GLM, IceT, optionparser).
-  * `CMake/` Auxiliary build scripts and macros.
-  * `Utilites/` Miscellaneous developer scripts.
+- `DirectSend/` MPI compositor implementations and supporting utilities.
+- `Common/` Rendering primitives, image buffers, and reusable utilities (with tests under `Common/Testing/`).
+- `ViskoresVolumeRenderer/` CLI driver that exercises the production pipeline.
+- `python/` Scriptable bindings built atop the C++ core.
+- `AMReX/` Submodule providing AMReX dependencies.
+- `CMake/` Build-time helpers and shared CMake modules.
+
+## Acknowledgements
+
+The DirectSend compositor implementation and benchmarking harnesses draw on prior
+work contributed to the miniGraphics repository (https://github.com/sandialabs/miniGraphics).
 
 ## License
 
