@@ -8,6 +8,7 @@
 #include <Common/Compositor.hpp>
 #include <Common/ImageFull.hpp>
 #include <Common/VolumeTypes.hpp>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
@@ -49,6 +50,10 @@ class ViskoresVolumeRenderer {
     bool hasExplicitBounds = false;
     std::pair<float, float> scalarRange = {0.0f, 1.0f};
     bool hasScalarRange = false;
+    std::pair<float, float> processedScalarRange = {0.0f, 1.0f};
+    bool hasProcessedScalarRange = false;
+    std::pair<float, float> originalScalarRange = {0.0f, 1.0f};
+    bool hasOriginalScalarRange = false;
   };
 
   struct RunOptions {
@@ -63,6 +68,16 @@ class ViskoresVolumeRenderer {
     std::optional<CameraParameters> camera;
     std::optional<std::pair<float, float>> scalarRange;
     std::optional<ColorMap> colorMap;
+  };
+
+  struct ScalarHistogram {
+    std::vector<std::uint64_t> binCounts;
+    std::pair<float, float> normalizedRange = {0.0f, 1.0f};
+    std::pair<float, float> processedRange = {0.0f, 1.0f};
+    bool hasProcessedRange = false;
+    std::pair<float, float> originalRange = {0.0f, 1.0f};
+    bool hasOriginalRange = false;
+    std::uint64_t sampleCount = 0;
   };
 
   /// \brief Render the provided scene geometry using the configured compositor.
@@ -93,6 +108,13 @@ class ViskoresVolumeRenderer {
 
   /// \brief Execute the miniapp using pre-parsed run options.
   int run(const RunOptions& options);
+
+  ScalarHistogram computeScalarHistogram(const std::string& plotfilePath,
+                                         const std::string& variableName,
+                                         int requestedMinLevel,
+                                         int requestedMaxLevel,
+                                         bool logScaleInput,
+                                         int binCount) const;
 
  private:
   void validateRenderParameters(const RenderParameters& parameters) const;

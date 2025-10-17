@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Example render driver that pins the camera and color scale in Python."""
 
+import argparse
 import math
 import os
 from pathlib import Path
@@ -28,14 +29,18 @@ FAR_PLANE = 10.0
 
 # Physical scalar -> RGBA ramp used for the volume color map. Values are in the
 # original field units; they are mapped through math.log when LOG_SCALE is True.
+alpha = 0.01
 COLOR_MAP_PHYSICAL = [
-    (1.0e-1, 0.04, 0.05, 0.20, 0.00),
-    (1.0e0, 0.10, 0.35, 0.70, 0.01),
-    (1.0e1, 0.25, 0.70, 0.90, 0.02),
-    (1.0e2, 0.65, 0.85, 0.60, 0.03),
-    (1.0e3, 0.98, 0.65, 0.30, 0.05),
-    (1.0e4, 1.00, 0.98, 0.95, 0.50),
-]
+    (0.0050, 0.00, 0.00, 0.00, 0.00),   # floor: fully transparent
+    (0.0052, 0.05, 0.07, 0.20, alpha*0.02),   # 1–5% tail: faint navy sheen
+    (0.0061, 0.10, 0.20, 0.40, alpha*0.05),   # 10%: tease out wispy filaments
+    (0.074 , 0.05, 0.45, 0.55, alpha*0.12),   # 30%: cool teal accents
+    (0.448, 0.20, 0.70, 0.40, alpha*0.18),   # median (~0.45): soft green mid-tones
+    (2.71 , 0.95, 0.90, 0.25, alpha*0.26),   # 90%: light golden shocks
+    (11.9 , 0.98, 0.55, 0.10, alpha*0.35),   # 99%: semi-transparent orange hotspots
+    (25.6 , 0.85, 0.20, 0.05, alpha*0.38),   # near-peak: deep red highlights
+    (40.2 , 1.00, 0.95, 0.95, alpha*0.45),   # absolute max: translucent white cap
+  ]
 
 
 def _build_color_map(log_scale: bool):
@@ -52,7 +57,7 @@ def _build_color_map(log_scale: bool):
     ]
 
 
-def _render_frames() -> None:
+def _render_frames(last_only: bool) -> None:
     runtime_initialized = False
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -82,7 +87,11 @@ def _render_frames() -> None:
         miniGraphics.initialize_runtime()
         runtime_initialized = True
 
-        for frame_idx in range(NUM_FRAMES):
+        frame_indices = (
+            [NUM_FRAMES - 1] if last_only else range(NUM_FRAMES)
+        )
+
+        for frame_idx in frame_indices:
             output_path = OUTPUT_DIR / f"{OUTPUT_PREFIX}_{frame_idx:04d}.ppm"
 
             if horizontal_radius > 0.0:
@@ -121,7 +130,17 @@ def _render_frames() -> None:
 
 
 def main() -> None:
-    _render_frames()
+    parser = argparse.ArgumentParser(
+        description="Render a series of plotfiles with a fixed camera."
+    )
+    parser.add_argument(
+        "--last-only",
+        action="store_true",
+        help="Render only the final plotfile in the sequence.",
+    )
+    args = parser.parse_args()
+
+    _render_frames(last_only=args.last_only)
 
 
 if __name__ == "__main__":

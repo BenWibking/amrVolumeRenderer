@@ -859,6 +859,48 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
   scene.explicitBounds.maxCorner = globalMax + padding;
   scene.hasExplicitBounds = true;
 
+  float originalScalarMinSend = hasLocalScalars
+                                    ? localScalarMin
+                                    : std::numeric_limits<float>::infinity();
+  float originalScalarMaxSend = hasLocalScalars
+                                    ? localScalarMax
+                                    : -std::numeric_limits<float>::infinity();
+  float globalOriginalScalarMin = originalScalarMinSend;
+  float globalOriginalScalarMax = originalScalarMaxSend;
+
+  MPI_Allreduce(&originalScalarMinSend,
+                &globalOriginalScalarMin,
+                1,
+                MPI_FLOAT,
+                MPI_MIN,
+                MPI_COMM_WORLD);
+  MPI_Allreduce(&originalScalarMaxSend,
+                &globalOriginalScalarMax,
+                1,
+                MPI_FLOAT,
+                MPI_MAX,
+                MPI_COMM_WORLD);
+
+  int localOriginalScalarCount = hasLocalScalars ? 1 : 0;
+  int globalOriginalScalarCount = 0;
+  MPI_Allreduce(&localOriginalScalarCount,
+                &globalOriginalScalarCount,
+                1,
+                MPI_INT,
+                MPI_SUM,
+                MPI_COMM_WORLD);
+
+  if (globalOriginalScalarCount > 0 &&
+      std::isfinite(globalOriginalScalarMin) &&
+      std::isfinite(globalOriginalScalarMax)) {
+    if (globalOriginalScalarMin == globalOriginalScalarMax) {
+      globalOriginalScalarMax = globalOriginalScalarMin + 1.0f;
+    }
+    scene.originalScalarRange = {globalOriginalScalarMin,
+                                 globalOriginalScalarMax};
+    scene.hasOriginalScalarRange = true;
+  }
+
   if (logScaleInput) {
     float positiveMinSend = hasLocalPositive
                                 ? localPositiveMin
@@ -936,7 +978,9 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
     globalScalarMax = globalScalarMin + 1.0f;
   }
 
-  scene.scalarRange = {globalScalarMin, globalScalarMax};
+  scene.processedScalarRange = {globalScalarMin, globalScalarMax};
+  scene.hasProcessedScalarRange = true;
+  scene.scalarRange = scene.processedScalarRange;
   scene.hasScalarRange = true;
 
   const float rangeWidth = globalScalarMax - globalScalarMin;
@@ -1125,6 +1169,98 @@ std::pair<float, float> ViskoresVolumeRenderer::computeGlobalScalarRange(
   }
 
   return {globalMin, globalMax};
+}
+
+auto ViskoresVolumeRenderer::computeScalarHistogram(
+    const std::string& plotfilePath,
+    const std::string& variableName,
+    int requestedMinLevel,
+    int requestedMaxLevel,
+    bool logScaleInput,
+    int binCount) const -> ScalarHistogram {
+  if (binCount <= 0) {
+    throw std::invalid_argument("binCount must be positive");
+  }
+
+  SceneGeometry geometry = loadPlotFileGeometry(plotfilePath,
+                                                variableName,
+                                                requestedMinLevel,
+                                                requestedMaxLevel,
+                                                logScaleInput);
+
+  ScalarHistogram histogram;
+  histogram.binCounts.resize(static_cast<std::size_t>(binCount), 0);
+
+  if (geometry.hasScalarRange) {
+    histogram.normalizedRange = geometry.scalarRange;
+  }
+
+  if (geometry.hasProcessedScalarRange) {
+    histogram.processedRange = geometry.processedScalarRange;
+    histogram.hasProcessedRange = true;
+  }
+
+  if (geometry.hasOriginalScalarRange) {
+    histogram.originalRange = geometry.originalScalarRange;
+    histogram.hasOriginalRange = true;
+  }
+
+  const float rangeMin = histogram.normalizedRange.first;
+  const float rangeMax = histogram.normalizedRange.second;
+  const float rangeWidth = rangeMax - rangeMin;
+
+  std::vector<std::uint64_t> localCounts(
+      static_cast<std::size_t>(binCount), 0);
+  std::uint64_t localSamples = 0;
+
+  if (rangeWidth > 0.0f && std::isfinite(rangeWidth)) {
+    const float inverseWidth = 1.0f / rangeWidth;
+    for (const auto& box : geometry.localBoxes) {
+      for (float value : box.cellValues) {
+        if (!std::isfinite(value)) {
+          continue;
+        }
+        float clamped = value;
+        if (clamped < rangeMin) {
+          clamped = rangeMin;
+        } else if (clamped > rangeMax) {
+          clamped = rangeMax;
+        }
+        float normalized = (clamped - rangeMin) * inverseWidth;
+        normalized = std::clamp(normalized, 0.0f, 1.0f);
+        int index =
+            static_cast<int>(normalized * static_cast<float>(binCount));
+        if (index >= binCount) {
+          index = binCount - 1;
+        } else if (index < 0) {
+          index = 0;
+        }
+        localCounts[static_cast<std::size_t>(index)] += 1;
+        localSamples += 1;
+      }
+    }
+  }
+
+  std::vector<std::uint64_t> globalCounts(
+      static_cast<std::size_t>(binCount), 0);
+  MPI_Allreduce(localCounts.data(),
+                globalCounts.data(),
+                binCount,
+                MPI_UINT64_T,
+                MPI_SUM,
+                MPI_COMM_WORLD);
+
+  std::uint64_t globalSamples = 0;
+  MPI_Allreduce(
+      &localSamples, &globalSamples, 1, MPI_UINT64_T, MPI_SUM, MPI_COMM_WORLD);
+
+  histogram.binCounts = std::move(globalCounts);
+  histogram.sampleCount = globalSamples;
+  if (!histogram.hasProcessedRange || globalSamples == 0) {
+    histogram.binCounts.assign(histogram.binCounts.size(), 0);
+  }
+
+  return histogram;
 }
 
 void ViskoresVolumeRenderer::paint(const AmrBox& box,

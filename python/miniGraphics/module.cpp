@@ -301,4 +301,57 @@ NB_MODULE(miniGraphics_ext, module) {
       "executable. Additional keyword arguments allow specifying "
       "scalar_range=(min, max), an explicit camera via camera_* options, and "
       "color_map=[(value, r, g, b, a), ...] with physical scalar values.");
+  module.def(
+      "compute_histogram",
+      [](const std::string& plotfilePath,
+         nb::object variableName,
+         int minLevel,
+         int maxLevel,
+         bool logScaleInput,
+         int binCount) {
+        RuntimeScope runtime;
+
+        std::optional<std::string> variable;
+        if (!variableName.is_none()) {
+          variable = nb::cast<std::string>(variableName);
+        }
+
+        ViskoresVolumeRenderer renderer;
+        ViskoresVolumeRenderer::ScalarHistogram histogram =
+            renderer.computeScalarHistogram(plotfilePath,
+                                            variable.value_or(std::string()),
+                                            minLevel,
+                                            maxLevel,
+                                            logScaleInput,
+                                            binCount);
+
+        nb::dict result;
+        result["counts"] = histogram.binCounts;
+        result["normalized_range"] =
+            std::array<float, 2>{histogram.normalizedRange.first,
+                                 histogram.normalizedRange.second};
+        if (histogram.hasProcessedRange) {
+          result["processed_range"] =
+              std::array<float, 2>{histogram.processedRange.first,
+                                   histogram.processedRange.second};
+        } else {
+          result["processed_range"] = nb::none();
+        }
+        if (histogram.hasOriginalRange) {
+          result["original_range"] =
+              std::array<float, 2>{histogram.originalRange.first,
+                                   histogram.originalRange.second};
+        } else {
+          result["original_range"] = nb::none();
+        }
+        result["samples"] = histogram.sampleCount;
+        return result;
+      },
+      nb::arg("plotfile"),
+      nb::arg("variable") = nb::none(),
+      nb::arg("min_level") = 0,
+      nb::arg("max_level") = -1,
+      nb::arg("log_scale") = false,
+      nb::arg("bins") = 256,
+      "Compute a histogram of normalized scalar values used during rendering.");
 }
