@@ -39,10 +39,10 @@ COLOR_MAP_PHYSICAL = [
     (0.0300, 0.18, 0.52, 0.74, 0.028),  # emphasize coherent sheets
     (0.0800, 0.14, 0.72, 0.82, 0.050),  # cooler cyan mid-tones, still restrained
     (0.2200, 0.26, 0.88, 0.62, 0.075),  # bright greens on dense ridges
-    (0.6500, 0.90, 0.68, 0.24, 0.120),  # warm transition into shocks
-    (1.8000, 1.00, 0.46, 0.10, 0.250),  # glowing oranges for strong shocks
-    (6.5000, 1.00, 0.24, 0.03, 0.600),  # tight crimson highlights
-    (22.0000, 0.98, 0.86, 0.78, 0.65),  # soften approach to the clip region
+    (0.6500, 0.90, 0.68, 0.24, 0.100),  # warm transition into shocks
+    (1.8000, 1.00, 0.46, 0.10, 0.150),  # glowing oranges for strong shocks
+    (6.5000, 1.00, 0.24, 0.03, 0.800),  # tight crimson highlights
+    (22.0000, 0.98, 0.86, 0.78, 0.90),  # soften approach to the clip region
     (1.000e3, 1.00, 0.96, 0.94, 1.00),  # controlled roll-off into white
 ]
 
