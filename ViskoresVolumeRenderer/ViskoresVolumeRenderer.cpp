@@ -1782,10 +1782,75 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
                                                 options.minLevel,
                                                 options.maxLevel,
                                                 options.logScaleInput);
+  if (!geometry.hasProcessedScalarRange) {
+    throw std::runtime_error(
+        "Internal error: processed scalar range unavailable for color mapping.");
+  }
+  const float processedMin = geometry.processedScalarRange.first;
+  const float processedMax = geometry.processedScalarRange.second;
+  const float processedSpan = processedMax - processedMin;
+  if (!(processedSpan > 0.0f) || !std::isfinite(processedSpan)) {
+    throw std::runtime_error(
+        "Failed to establish a finite scalar range for color mapping.");
+  }
+
+  const auto toProcessed = [&](float physicalValue) -> float {
+    if (!std::isfinite(physicalValue)) {
+      throw std::invalid_argument(
+          "color_map scalar values must be finite.");
+    }
+    if (options.logScaleInput) {
+      if (!(physicalValue > 0.0f)) {
+        throw std::invalid_argument(
+            "color_map scalar values must be positive when log scaling is "
+            "enabled.");
+      }
+      return std::log(physicalValue);
+    }
+    return physicalValue;
+  };
+
+  const auto toNormalized = [&](float processedValue) -> float {
+    return (processedValue - processedMin) / processedSpan;
+  };
+
+  const auto clampNormalized = [](float value) -> float {
+    if (!std::isfinite(value)) {
+      throw std::invalid_argument(
+          "color_map produced a non-finite normalized scalar value.");
+    }
+    return std::clamp(value, 0.0f, 1.0f);
+  };
+
   if (options.scalarRange) {
-    geometry.scalarRange = *options.scalarRange;
+    const float processedMinOverride = toProcessed(options.scalarRange->first);
+    const float processedMaxOverride = toProcessed(options.scalarRange->second);
+    float normalizedMin = clampNormalized(toNormalized(processedMinOverride));
+    float normalizedMax = clampNormalized(toNormalized(processedMaxOverride));
+    if (!(normalizedMin < normalizedMax)) {
+      throw std::invalid_argument(
+          "scalar_range must have min < max after applying log scaling.");
+    }
+    geometry.scalarRange = {normalizedMin, normalizedMax};
     geometry.hasScalarRange = true;
   }
+
+  std::optional<ColorMap> normalizedColorMap;
+  if (options.colorMap) {
+    ColorMap converted;
+    converted.reserve(options.colorMap->size());
+    for (const auto& controlPoint : *options.colorMap) {
+      ColorMapControlPoint normalizedPoint = controlPoint;
+      const float processedValue = toProcessed(controlPoint.value);
+      normalizedPoint.value =
+          clampNormalized(toNormalized(processedValue));
+      converted.push_back(normalizedPoint);
+    }
+    normalizedColorMap = std::move(converted);
+  }
+  const std::optional<ColorMap> emptyColorMap;
+  const std::optional<ColorMap>* colorMapPtr =
+      normalizedColorMap ? &normalizedColorMap : &emptyColorMap;
 
   if (options.camera) {
     Vec3 normalizedUp(options.camera->up);
@@ -1795,13 +1860,13 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
                        options.parameters,
                        geometry,
                        *options.camera,
-                       options.colorMap);
+                       *colorMapPtr);
   }
 
   return renderScene(options.outputFilename,
                      options.parameters,
                      geometry,
-                     options.colorMap);
+                     *colorMapPtr);
 }
 
 int ViskoresVolumeRenderer::run(int argc, char** argv) {

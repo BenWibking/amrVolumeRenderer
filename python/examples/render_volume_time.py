@@ -29,7 +29,7 @@ FAR_PLANE = 10.0
 
 # Physical scalar -> RGBA ramp used for the volume color map. Values are in the
 # original field units; they are mapped through math.log when LOG_SCALE is True.
-alpha = 0.01
+alpha = 1/0.45
 COLOR_MAP_PHYSICAL = [
     (0.0050, 0.00, 0.00, 0.00, 0.00),   # floor: fully transparent
     (0.0052, 0.05, 0.07, 0.20, alpha*0.02),   # 1–5% tail: faint navy sheen
@@ -43,20 +43,6 @@ COLOR_MAP_PHYSICAL = [
   ]
 
 
-def _build_color_map(log_scale: bool):
-    transform = math.log if log_scale else (lambda value: value)
-    return [
-        (
-            float(transform(value)),
-            float(red),
-            float(green),
-            float(blue),
-            float(alpha),
-        )
-        for value, red, green, blue, alpha in COLOR_MAP_PHYSICAL
-    ]
-
-
 def _render_frames(last_only: bool) -> None:
     runtime_initialized = False
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -64,9 +50,11 @@ def _render_frames(last_only: bool) -> None:
     camera_eye = CAMERA_EYE
     camera_look_at = CAMERA_LOOK_AT
     camera_up = CAMERA_UP
-    color_map = _build_color_map(LOG_SCALE)
+
     scalar_range = (
-        (color_map[0][0], color_map[-1][0]) if color_map else None
+        (COLOR_MAP_PHYSICAL[0][0], COLOR_MAP_PHYSICAL[-1][0])
+        if COLOR_MAP_PHYSICAL
+        else None
     )
 
     plotfiles = sorted(glob.glob(PLOTFILE_GLOB))
@@ -121,7 +109,7 @@ def _render_frames(last_only: bool) -> None:
                 camera_fov_y=FOV_Y,
                 camera_near=NEAR_PLANE,
                 camera_far=FAR_PLANE,
-                color_map=color_map,
+                color_map=COLOR_MAP_PHYSICAL,
                 scalar_range=scalar_range,
             )
     finally:
