@@ -45,10 +45,10 @@ before running CMake or provide the install prefix via `Viskores_DIR`.
    Requirements: CMake 3.3+, a C++11 (or newer) compiler, Viskores, and an MPI
    implementation such as OpenMPI or MPICH.
 
-3. Launch the reference DirectSend compositor (replace `plt0010` with your AMReX plotfile):
+3. Launch the ViskoresVolumeRenderer driver (replace `plt0010` with your AMReX plotfile):
 
    ```sh
-   mpirun -np 4 build/bin/DirectSendBase --input=plt0010 --width=512 --height=512
+   mpirun -np 4 build/bin/ViskoresVolumeRenderer --plotfile=plt0010 --width=512 --height=512
    ```
 
    Pass `--help` to list all rendering and AMR selection options.
@@ -83,7 +83,7 @@ render(
 )
 ```
 
-Keyword arguments mirror the CLI flags exposed by `DirectSendBase` and
+Keyword arguments mirror the CLI flags exposed by
 `ViskoresVolumeRenderer`. The module initializes and finalizes MPI/AMReX on
 demand when run inside a Python interpreter.
 
