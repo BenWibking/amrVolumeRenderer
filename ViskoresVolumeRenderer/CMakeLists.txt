@@ -3,9 +3,15 @@
 ##
 ##
 
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.14)
 
 include(../CMake/amrVolumeRendererMacros.cmake)
+include(FetchContent)
+
+FetchContent_Declare(amrex
+  GIT_REPOSITORY https://github.com/AMReX-Codes/amrex.git
+  GIT_TAG 546a888ef0417648b5086a13b3eb3cd13f185070
+)
 
 # Allow users to force Viskores usage from the command line.
 set(_amrVolumeRendererRequireViskores OFF)
@@ -32,7 +38,7 @@ if(Viskores_FOUND)
   set(AMReX_GPU_BACKEND "NONE" CACHE STRING "Disable AMReX GPU backends" FORCE)
 
   if(NOT TARGET amrex)
-    add_subdirectory(${amrVolumeRenderer_SOURCE_DIR}/AMReX ${CMAKE_BINARY_DIR}/AMReX)
+    FetchContent_MakeAvailable(amrex)
   endif()
 
   amrVolumeRenderer_executable(ViskoresVolumeRenderer

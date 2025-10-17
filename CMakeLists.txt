@@ -7,7 +7,7 @@
 ## certain rights in this software.
 ## Additional contributions (C) 2025 Ben Wibking.
 
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.14)
 
 project(amrVolumeRenderer)
 
@@ -24,11 +24,17 @@ set(Python_INCLUDE_DIRS ${Python3_INCLUDE_DIRS})
 set(Python_LIBRARY ${Python3_LIBRARIES})
 set(Python_LIBRARIES ${Python3_LIBRARIES})
 
+include(FetchContent)
+
 # Disable nanobind tests when building as a subproject.
 set(NB_TEST OFF CACHE BOOL "" FORCE)
 set(NB_TEST_STABLE_ABI OFF CACHE BOOL "" FORCE)
 set(NB_PYTHON_TARGET Python3::Module CACHE INTERNAL "Python target for nanobind")
-add_subdirectory(nanobind EXCLUDE_FROM_ALL)
+FetchContent_Declare(nanobind
+  GIT_REPOSITORY https://github.com/wjakob/nanobind.git
+  GIT_TAG dd350fe81931a1b362196cb415d188c36422766e
+)
+FetchContent_MakeAvailable(nanobind)
 
 # These macros are not stricly necessary for this top-level CMake file, but
 # by including it here, we can find the necessary packages once and this

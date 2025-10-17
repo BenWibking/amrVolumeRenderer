@@ -16,13 +16,24 @@ offline batch jobs, interactive exploration, and automated regression testing.
 
 ## Quick Start
 
-1. Clone the repository and initialize submodules (includes AMReX and Python bindings):
+Install Viskores first; the renderer relies on its libraries being available when
+you configure the project. With Spack:
+
+```sh
+spack install viskores
+```
+
+Activate the package in your environment (for example, `spack load viskores`)
+before running CMake or provide the install prefix via `Viskores_DIR`.
+
+1. Clone the repository:
 
    ```sh
    git clone https://github.com/<your-org>/amrVolumeRenderer.git
    cd amrVolumeRenderer
-   git submodule update --init --recursive
    ```
+
+   CMake will fetch AMReX, nanobind, and other dependencies during the configure step—no submodules required.
 
 2. Configure and build out-of-source:
 
@@ -31,7 +42,7 @@ offline batch jobs, interactive exploration, and automated regression testing.
    cmake --build build --target all -j
    ```
 
-   Requirements: CMake 3.3+, a C++11 (or newer) compiler, and an MPI
+   Requirements: CMake 3.3+, a C++11 (or newer) compiler, Viskores, and an MPI
    implementation such as OpenMPI or MPICH.
 
 3. Launch the reference DirectSend compositor (replace `plt0010` with your AMReX plotfile):
@@ -94,7 +105,7 @@ keeping image sizes small for fast turnaround.
 - `Common/` Rendering primitives, image buffers, and reusable utilities (with tests under `Common/Testing/`).
 - `ViskoresVolumeRenderer/` CLI driver that exercises the production pipeline.
 - `python/` Scriptable bindings built atop the C++ core.
-- `AMReX/` Submodule providing AMReX dependencies.
+- External dependencies (AMReX, nanobind) are populated under `build/_deps/` when configuring via CMake.
 - `CMake/` Build-time helpers and shared CMake modules.
 
 ## Acknowledgements
