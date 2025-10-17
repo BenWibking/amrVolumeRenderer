@@ -29,7 +29,7 @@ FAR_PLANE = 10.0
 
 # Physical scalar -> RGBA ramp used for the volume color map. Values are in the
 # original field units; they are mapped through math.log when LOG_SCALE is True.
-alpha = 1/0.45
+alpha = 2.0
 COLOR_MAP_PHYSICAL = [
     (0.0050, 0.00, 0.00, 0.00, 0.00),   # floor: fully transparent
     (0.0052, 0.05, 0.07, 0.20, alpha*0.02),   # 1–5% tail: faint navy sheen
@@ -39,7 +39,7 @@ COLOR_MAP_PHYSICAL = [
     (2.71 , 0.95, 0.90, 0.25, alpha*0.26),   # 90%: light golden shocks
     (11.9 , 0.98, 0.55, 0.10, alpha*0.35),   # 99%: semi-transparent orange hotspots
     (25.6 , 0.85, 0.20, 0.05, alpha*0.38),   # near-peak: deep red highlights
-    (40.2 , 1.00, 0.95, 0.95, alpha*0.45),   # absolute max: translucent white cap
+    (100. , 1.00, 0.95, 0.95, alpha*0.45),   # absolute max: translucent white cap
   ]
 
 
