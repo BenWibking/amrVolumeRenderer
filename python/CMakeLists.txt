@@ -42,6 +42,65 @@ endif()
 
 target_compile_definitions(amrVolumeRenderer_ext PRIVATE AMRVOLUMERENDERER_ENABLE_VISKORES)
 
+# Propagate runtime search paths so the extension can find the Viskores binaries.
+set(_amrVolumeRenderer_ext_rpaths "")
+
+if(TARGET viskores::rendering)
+  get_target_property(_amrvr_viskores_imported viskores::rendering IMPORTED)
+  if(_amrvr_viskores_imported)
+    get_target_property(_amrvr_viskores_configs viskores::rendering IMPORTED_CONFIGURATIONS)
+    if(NOT _amrvr_viskores_configs OR _amrvr_viskores_configs STREQUAL "NOTFOUND")
+      set(_amrvr_viskores_configs Release)
+    endif()
+    foreach(_amrvr_cfg ${_amrvr_viskores_configs})
+      string(TOUPPER "${_amrvr_cfg}" _amrvr_cfg_upper)
+      get_target_property(_amrvr_viskores_location viskores::rendering "IMPORTED_LOCATION_${_amrvr_cfg_upper}")
+      if(NOT _amrvr_viskores_location OR _amrvr_viskores_location STREQUAL "NOTFOUND")
+        get_target_property(_amrvr_viskores_location viskores::rendering IMPORTED_LOCATION)
+      endif()
+      if(_amrvr_viskores_location AND NOT _amrvr_viskores_location STREQUAL "NOTFOUND")
+        get_filename_component(_amrvr_viskores_dir "${_amrvr_viskores_location}" DIRECTORY)
+        list(APPEND _amrVolumeRenderer_ext_rpaths "${_amrvr_viskores_dir}")
+      endif()
+    endforeach()
+  else()
+    get_target_property(_amrvr_viskores_runtime_dir viskores::rendering RUNTIME_OUTPUT_DIRECTORY)
+    if(_amrvr_viskores_runtime_dir AND NOT _amrvr_viskores_runtime_dir STREQUAL "NOTFOUND")
+      list(APPEND _amrVolumeRenderer_ext_rpaths "${_amrvr_viskores_runtime_dir}")
+    endif()
+    get_target_property(_amrvr_viskores_library_dir viskores::rendering LIBRARY_OUTPUT_DIRECTORY)
+    if(_amrvr_viskores_library_dir AND NOT _amrvr_viskores_library_dir STREQUAL "NOTFOUND")
+      list(APPEND _amrVolumeRenderer_ext_rpaths "${_amrvr_viskores_library_dir}")
+    endif()
+  endif()
+endif()
+
+if(DEFINED Viskores_LIBRARIES)
+  foreach(_amrvr_library ${Viskores_LIBRARIES})
+    if(IS_ABSOLUTE "${_amrvr_library}")
+      get_filename_component(_amrvr_library_dir "${_amrvr_library}" DIRECTORY)
+      list(APPEND _amrVolumeRenderer_ext_rpaths "${_amrvr_library_dir}")
+    endif()
+  endforeach()
+endif()
+
+list(REMOVE_DUPLICATES _amrVolumeRenderer_ext_rpaths)
+
+if(APPLE)
+  list(PREPEND _amrVolumeRenderer_ext_rpaths "@loader_path")
+elseif(UNIX)
+  list(PREPEND _amrVolumeRenderer_ext_rpaths "$ORIGIN")
+endif()
+
+list(REMOVE_DUPLICATES _amrVolumeRenderer_ext_rpaths)
+
+if(_amrVolumeRenderer_ext_rpaths)
+  set_target_properties(amrVolumeRenderer_ext PROPERTIES
+    BUILD_RPATH "${_amrVolumeRenderer_ext_rpaths}"
+    INSTALL_RPATH "${_amrVolumeRenderer_ext_rpaths}"
+  )
+endif()
+
 set_target_properties(amrVolumeRenderer_ext PROPERTIES
   OUTPUT_NAME "amrVolumeRenderer_ext"
 )
