@@ -4,7 +4,7 @@ amrVolumeRenderer is a parallel volume renderer for
 block-structured AMR data written with AMReX. The system runs efficiently on
 distributed-memory platforms using MPI, consumes native AMReX plotfiles, and
 exposes its full rendering pipeline through a scriptable Python API for
-offline batch jobs, interactive exploration, and automated regression testing.
+offline batch jobs and interactive exploration.
 
 ![Rendered turbulent volume](turb_render.png)
 
@@ -118,7 +118,7 @@ We thank Kenneth Moreland for making this implementation available.
 
 ## License
 
-amrVolumeRenderer is distributed under the OSI-approved BSD 3-clause License.
+amrVolumeRenderer is distributed under the BSD 3-clause license.
 See `LICENSE.txt` for details.
 
 Copyright (C) 2025 Ben Wibking.
