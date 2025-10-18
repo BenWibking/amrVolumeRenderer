@@ -36,9 +36,14 @@ if(Viskores_FOUND)
   set(AMReX_FORTRAN OFF CACHE BOOL "Disable AMReX Fortran interfaces" FORCE)
   set(AMReX_OMP OFF CACHE BOOL "Disable AMReX OpenMP" FORCE)
   set(AMReX_GPU_BACKEND "NONE" CACHE STRING "Disable AMReX GPU backends" FORCE)
+  set(AMReX_ENABLE_PIC ON CACHE BOOL "Build AMReX with position independent code" FORCE)
 
   if(NOT TARGET amrex)
     FetchContent_MakeAvailable(amrex)
+  endif()
+
+  if(TARGET amrex)
+    set_target_properties(amrex PROPERTIES POSITION_INDEPENDENT_CODE ON)
   endif()
 
   amrVolumeRenderer_executable(ViskoresVolumeRenderer
