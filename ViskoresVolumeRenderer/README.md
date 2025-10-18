@@ -30,9 +30,10 @@ mpirun -np 4 build/bin/ViskoresVolumeRenderer \
 - `--box-transparency`: Per-box transparency factor in `[0, 1]` (default: 0).
 - `--antialiasing`: Supersampling factor (must be a positive perfect square: 1, 4, 9, ...).
 - `--visibility-graph` / `--no-visibility-graph`: Toggle visibility-graph ordering (enabled by default).
-- `--output`: Destination filename for the composited image (default: `viskores-volume.ppm`).
+- `--output`: Destination filename for the composited image (supports `.ppm` and `.png`, default: `viskores-volume.ppm`).
 
 Images are written on rank 0.
+PNG outputs are saved as 8-bit RGB with the alpha channel discarded.
 
 ## Library Usage
 
@@ -69,7 +70,7 @@ int main(int argc, char** argv) {
   camera.nearPlane = 0.1f;
   camera.farPlane = 20.0f;
 
-  example.renderScene("custom-output.ppm", params, geometry, camera);
+  example.renderScene("custom-output.png", params, geometry, camera);
 
   MPI_Finalize();
 }

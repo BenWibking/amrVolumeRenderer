@@ -13,7 +13,7 @@ offline batch jobs and interactive exploration.
 - Scalable DirectSend compositing path tuned for AMR workloads and large node counts.
 - Zero-copy ingestion of AMReX plotfiles, including multi-level refinement control.
 - Hybrid C++/Python driver model: drive renders from MPI-enabled Python scripts or native binaries.
-- Deterministic outputs with shared image formats for reproducible workflows.
+- Deterministic outputs with shared image formats for reproducible workflows (PNG renders store RGB values with alpha discarded).
 - Optional regression suite to validate compositing and sampling logic on each change.
 
 ## Quick Start
@@ -44,8 +44,8 @@ before running CMake or provide the install prefix via `Viskores_DIR`.
    cmake --build build --target all -j
    ```
 
-   Requirements: CMake 3.3+, a C++11 (or newer) compiler, Viskores, and an MPI
-   implementation such as OpenMPI or MPICH.
+   Requirements: CMake 3.3+, a C++11 (or newer) compiler, libpng, Viskores, and
+   an MPI implementation such as OpenMPI or MPICH.
 
 3. Launch the ViskoresVolumeRenderer driver (replace `plt0010` with your AMReX plotfile):
 
@@ -74,7 +74,7 @@ from amrVolumeRenderer import render
 
 render(
     input_path="plt0010",
-    output_path="volume.ppm",
+    output_path="volume.png",
     width=1024,
     height=1024,
     min_level=0,

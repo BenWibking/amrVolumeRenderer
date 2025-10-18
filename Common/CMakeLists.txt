@@ -13,6 +13,8 @@ cmake_minimum_required(VERSION 3.10)
 
 project(amrVolumeRendererCommon CXX)
 
+find_package(PNG REQUIRED)
+
 set(srcs
   Image.cpp
   ImageRGBAFloatColorOnly.cpp
@@ -22,6 +24,7 @@ set(srcs
   ImageRGBFloatColorDepth.cpp
   ImageSparse.cpp
   LayeredVolumeImage.cpp
+  SavePNG.cpp
   SavePPM.cpp
   )
 
@@ -47,6 +50,7 @@ set(headers
   VolumeTypes.hpp
   VisibilityOrdering.hpp
   SavePPM.hpp
+  SavePNG.hpp
   Viewport.hpp
   )
 
@@ -58,6 +62,7 @@ set_target_properties(amrVolumeRendererCommon PROPERTIES POSITION_INDEPENDENT_CO
 set_source_files_properties(${headers} HEADER_ONLY TRUE)
 
 amrVolumeRenderer_target_features(amrVolumeRendererCommon)
+target_link_libraries(amrVolumeRendererCommon PRIVATE PNG::PNG)
 
 if(AMRVOLUMERENDERER_ENABLE_TESTING)
   add_subdirectory(Testing)

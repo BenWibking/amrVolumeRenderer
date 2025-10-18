@@ -84,7 +84,7 @@ def _render_frames(last_only: bool) -> None:
         )
 
         for frame_idx in frame_indices:
-            output_path = OUTPUT_DIR / f"{OUTPUT_PREFIX}_{frame_idx:04d}.ppm"
+            output_path = OUTPUT_DIR / f"{OUTPUT_PREFIX}_{frame_idx:04d}.png"
 
             if horizontal_radius > 0.0:
                 # Step the camera azimuth as we advance through the plotfiles.

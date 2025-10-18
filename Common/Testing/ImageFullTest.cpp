@@ -11,9 +11,11 @@
 #include <Common/ImageRGBAUByteColorFloatDepth.hpp>
 #include <Common/ImageRGBAUByteColorOnly.hpp>
 #include <Common/ImageRGBFloatColorDepth.hpp>
+#include <Common/SavePNG.hpp>
 #include <Common/SavePPM.hpp>
 
 #include <cmath>
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <type_traits>
@@ -482,6 +484,16 @@ static void TestWindow() {
   compareImages(*blendedImage, *createImageCombined<ImageType>(MID2, MID3));
 }
 
+static void TestSavePNGOutput() {
+  std::cout << "SavePNG" << std::endl;
+  auto partialImage =
+      createImage1<ImageRGBAFloatColorOnly>(0, (IMAGE_WIDTH * IMAGE_HEIGHT) / 2);
+  const std::string filename = "ImageFullTest-save.png";
+  const bool saved = SavePNG(*partialImage, filename);
+  TEST_ASSERT(saved);
+  std::remove(filename.c_str());
+}
+
 template <typename ImageType>
 static void DoImageTest(const std::string& imageTypeName) {
   std::cout << imageTypeName << std::endl;
@@ -502,6 +514,8 @@ int ImageFullTest(int argc, char* argv[]) {
   DO_IMAGE_TEST(ImageRGBAUByteColorFloatDepth);
   DO_IMAGE_TEST(ImageRGBAUByteColorOnly);
   DO_IMAGE_TEST(ImageRGBFloatColorDepth);
+
+  TestSavePNGOutput();
 
   MPI_Finalize();
 

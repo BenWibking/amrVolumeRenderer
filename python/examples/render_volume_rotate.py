@@ -88,7 +88,7 @@ def _render_frames() -> None:
                 eye_height + camera_look_at[1],
                 horizontal_radius * math.sin(angle) + camera_look_at[2],
             )
-            output_path = OUTPUT_DIR / f"{OUTPUT_PREFIX}_{frame_idx:04d}.ppm"
+            output_path = OUTPUT_DIR / f"{OUTPUT_PREFIX}_{frame_idx:04d}.png"
 
             renderer.render(
                 plotfile=PLOTFILE,

@@ -14,6 +14,7 @@
 #include <Common/ImageRGBAFloatColorDepthSort.hpp>
 #include <Common/ImageSparse.hpp>
 #include <Common/LayeredVolumeImage.hpp>
+#include <Common/SavePNG.hpp>
 #include <Common/SavePPM.hpp>
 #include <Common/VisibilityOrdering.hpp>
 #include <Common/VolumePainterViskores.hpp>
@@ -23,6 +24,7 @@
 #include <chrono>
 #include <array>
 #include <cmath>
+#include <cctype>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -45,6 +47,20 @@ using amrVolumeRenderer::volume::AmrBox;
 using amrVolumeRenderer::volume::CameraParameters;
 using amrVolumeRenderer::volume::VolumeBounds;
 using viskores::Id;
+
+std::string lowercaseExtension(const std::string& filename) {
+  const std::size_t dot = filename.find_last_of('.');
+  if (dot == std::string::npos) {
+    return std::string();
+  }
+
+  std::string ext = filename.substr(dot);
+  std::transform(ext.begin(),
+                 ext.end(),
+                 ext.begin(),
+                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  return ext;
+}
 
 Vec3 componentMin(const Vec3& a, const Vec3& b) {
   Vec3 result;
@@ -323,7 +339,8 @@ void printUsage() {
       << "  --print-camera   Emit the camera parameters selected automatically\n"
       << "  --log-scale      Apply natural log scaling before normalizing the "
          "input field\n"
-      << "  --output FILE    Output filename (default: viskores-volume.ppm)\n"
+      << "  --output FILE    Output filename (supports .ppm or .png; default: "
+      << "viskores-volume.ppm)\n"
       << "  -h, --help       Show this help message\n";
 }
 
@@ -1665,7 +1682,18 @@ int ViskoresVolumeRenderer::renderSingleTrial(
         outputImage = std::move(gatheredImage);
       }
 
-      const bool saved = SavePPM(*outputImage, outputFilename);
+      const std::string extension = lowercaseExtension(outputFilename);
+      if (!extension.empty() && extension != ".ppm" && extension != ".png") {
+        std::cerr << "Render: unrecognized image extension '" << extension
+                  << "', defaulting to PPM output." << std::endl;
+      }
+
+      bool saved = false;
+      if (extension == ".png") {
+        saved = SavePNG(*outputImage, outputFilename);
+      } else {
+        saved = SavePPM(*outputImage, outputFilename);
+      }
       if (saved) {
         std::cout << "Saved volume composited image to '" << outputFilename
                   << "'" << std::endl;
