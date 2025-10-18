@@ -16,6 +16,11 @@ if (AMRVOLUMERENDERER_ENABLE_TESTING)
   enable_testing()
 endif()
 
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  # Suppress GCC PSA ABI noise when building AMReX headers under C++17+
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wno-psabi>")
+endif()
+
 find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
 
 set(Python_EXECUTABLE ${Python3_EXECUTABLE})
