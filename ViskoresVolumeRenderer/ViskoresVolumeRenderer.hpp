@@ -42,6 +42,7 @@ class ViskoresVolumeRenderer {
     unsigned int cameraSeed = 91021u;
     viskores::Vec3f_32 cameraUp = viskores::Vec3f_32(0.0f, 1.0f, 0.0f);
     bool useCustomUp = false;
+    bool printCamera = false;
   };
 
   struct SceneGeometry {

@@ -320,6 +320,7 @@ void printUsage() {
          "finest level)\n"
       << "  --min-level L    Coarsest AMR level to include (default: 0)\n"
       << "  --up-vector X Y Z  Camera up vector components (default: 0 1 0)\n"
+      << "  --print-camera   Emit the camera parameters selected automatically\n"
       << "  --log-scale      Apply natural log scaling before normalizing the "
          "input field\n"
       << "  --output FILE    Output filename (default: viskores-volume.ppm)\n"
@@ -401,6 +402,8 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
       }
       parsed.parameters.cameraUp = upVector / length;
       parsed.parameters.useCustomUp = true;
+    } else if (arg == "--print-camera") {
+      parsed.parameters.printCamera = true;
     } else if (arg == "--plotfile") {
       parsed.plotfilePath = requireValue(arg);
     } else if (arg == "--help" || arg == "-h") {
@@ -1388,6 +1391,19 @@ int ViskoresVolumeRenderer::renderScene(
                           nearPlane,
                           farPlane};
 
+  if (parameters.printCamera && rank == 0) {
+    std::cout << "Camera parameters (automatic):\n"
+              << "  eye      = (" << camera.eye[0] << ", " << camera.eye[1]
+              << ", " << camera.eye[2] << ")\n"
+              << "  look_at  = (" << camera.lookAt[0] << ", " << camera.lookAt[1]
+              << ", " << camera.lookAt[2] << ")\n"
+              << "  up       = (" << camera.up[0] << ", " << camera.up[1] << ", "
+              << camera.up[2] << ")\n"
+              << "  fov_y    = " << camera.fovYDegrees << " degrees\n"
+              << "  near     = " << camera.nearPlane << "\n"
+              << "  far      = " << camera.farPlane << std::endl;
+  }
+
   return renderSingleTrial(outputFilenameBase,
                            parameters,
                            geometry,
@@ -1407,6 +1423,19 @@ int ViskoresVolumeRenderer::renderScene(
     const std::optional<ColorMap>& colorMap) {
   validateRenderParameters(parameters);
   initialize();
+
+  if (parameters.printCamera && rank == 0) {
+    std::cout << "Camera parameters (explicit):\n"
+              << "  eye      = (" << camera.eye[0] << ", " << camera.eye[1]
+              << ", " << camera.eye[2] << ")\n"
+              << "  look_at  = (" << camera.lookAt[0] << ", " << camera.lookAt[1]
+              << ", " << camera.lookAt[2] << ")\n"
+              << "  up       = (" << camera.up[0] << ", " << camera.up[1] << ", "
+              << camera.up[2] << ")\n"
+              << "  fov_y    = " << camera.fovYDegrees << " degrees\n"
+              << "  near     = " << camera.nearPlane << "\n"
+              << "  far      = " << camera.farPlane << std::endl;
+  }
 
   VolumeBounds bounds = computeGlobalBounds(
       geometry.localBoxes, geometry.hasExplicitBounds, geometry.explicitBounds);
