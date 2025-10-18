@@ -43,7 +43,12 @@ if(Viskores_FOUND)
   endif()
 
   if(TARGET amrex)
-    set_target_properties(amrex PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    get_target_property(_amrex_alias amrex ALIASED_TARGET)
+    if(_amrex_alias)
+      set_target_properties(${_amrex_alias} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    else()
+      set_target_properties(amrex PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
   endif()
 
   amrVolumeRenderer_executable(ViskoresVolumeRenderer
