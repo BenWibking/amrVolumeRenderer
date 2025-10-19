@@ -47,6 +47,38 @@ COLOR_MAP_PHYSICAL = [
 ]
 
 
+def _dot(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _length(vec):
+    return math.sqrt(_dot(vec, vec))
+
+
+def _normalize(vec):
+    length = _length(vec)
+    if length <= 0.0:
+        return None
+    return (vec[0] / length, vec[1] / length, vec[2] / length)
+
+
+def _rotate_about_axis(vec, axis, angle):
+    """Rotate vec around the provided unit axis by angle radians."""
+    cos_angle = math.cos(angle)
+    sin_angle = math.sin(angle)
+    dot = _dot(vec, axis)
+    cross = (
+        axis[1] * vec[2] - axis[2] * vec[1],
+        axis[2] * vec[0] - axis[0] * vec[2],
+        axis[0] * vec[1] - axis[1] * vec[0],
+    )
+    return (
+        vec[0] * cos_angle + cross[0] * sin_angle + axis[0] * dot * (1.0 - cos_angle),
+        vec[1] * cos_angle + cross[1] * sin_angle + axis[1] * dot * (1.0 - cos_angle),
+        vec[2] * cos_angle + cross[2] * sin_angle + axis[2] * dot * (1.0 - cos_angle),
+    )
+
+
 def _render_frames(last_only: bool) -> None:
     runtime_initialized = False
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -72,8 +104,16 @@ def _render_frames(last_only: bool) -> None:
         camera_eye[1] - camera_look_at[1],
         camera_eye[2] - camera_look_at[2],
     )
-    horizontal_radius = math.hypot(rel_eye[0], rel_eye[2])
-    base_angle = math.atan2(rel_eye[2], rel_eye[0]) if horizontal_radius > 0.0 else 0.0
+    unit_up = _normalize(camera_up)
+    if unit_up is None:
+        raise ValueError("camera_up must be a non-zero vector.")
+    rel_eye_parallel = _dot(rel_eye, unit_up)
+    rel_eye_perp = (
+        rel_eye[0] - unit_up[0] * rel_eye_parallel,
+        rel_eye[1] - unit_up[1] * rel_eye_parallel,
+        rel_eye[2] - unit_up[2] * rel_eye_parallel,
+    )
+    orbit_radius = _length(rel_eye_perp)
 
     try:
         amrVolumeRenderer.initialize_runtime()
@@ -86,14 +126,15 @@ def _render_frames(last_only: bool) -> None:
         for frame_idx in frame_indices:
             output_path = OUTPUT_DIR / f"{OUTPUT_PREFIX}_{frame_idx:04d}.png"
 
-            if horizontal_radius > 0.0:
+            if orbit_radius > 0.0:
                 # Step the camera azimuth as we advance through the plotfiles.
                 fraction = frame_idx / NUM_FRAMES
-                angle = base_angle + math.pi * fraction
+                angle = math.pi * fraction
+                rotated_rel_eye = _rotate_about_axis(rel_eye, unit_up, angle)
                 frame_camera_eye = (
-                    camera_look_at[0] + horizontal_radius * math.cos(angle),
-                    camera_look_at[1] + rel_eye[1],
-                    camera_look_at[2] + horizontal_radius * math.sin(angle),
+                    camera_look_at[0] + rotated_rel_eye[0],
+                    camera_look_at[1] + rotated_rel_eye[1],
+                    camera_look_at[2] + rotated_rel_eye[2],
                 )
             else:
                 frame_camera_eye = camera_eye
