@@ -567,7 +567,8 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
     const std::string& variableName,
     int requestedMinLevel,
     int requestedMaxLevel,
-    bool logScaleInput) const -> SceneGeometry {
+    bool logScaleInput,
+    bool normalizeToDataRange) const -> SceneGeometry {
   if (plotfilePath.empty()) {
     throw std::invalid_argument("Plotfile path must not be empty.");
   }
@@ -1003,15 +1004,17 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
   scene.scalarRange = scene.processedScalarRange;
   scene.hasScalarRange = true;
 
-  const float rangeWidth = globalScalarMax - globalScalarMin;
-  if (rangeWidth > 0.0f && std::isfinite(rangeWidth)) {
-    for (auto& box : scene.localBoxes) {
-      for (float& value : box.cellValues) {
-        const float normalized = (value - globalScalarMin) / rangeWidth;
-        value = std::clamp(normalized, 0.0f, 1.0f);
+  if (normalizeToDataRange) {
+    const float rangeWidth = globalScalarMax - globalScalarMin;
+    if (rangeWidth > 0.0f && std::isfinite(rangeWidth)) {
+      for (auto& box : scene.localBoxes) {
+        for (float& value : box.cellValues) {
+          const float normalized = (value - globalScalarMin) / rangeWidth;
+          value = std::clamp(normalized, 0.0f, 1.0f);
+        }
       }
+      scene.scalarRange = {0.0f, 1.0f};
     }
-    scene.scalarRange = {0.0f, 1.0f};
   }
 
   scene.localBoxes.shrink_to_fit();
@@ -1023,7 +1026,12 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
     if (minLevel > 0 || maxLevel < finestLevel) {
       std::cout << " (levels " << minLevel << "-" << maxLevel << ")";
     }
-    std::cout << "; normalized scalar range [0, 1]";
+    if (normalizeToDataRange) {
+      std::cout << "; normalized scalar range [0, 1]";
+    } else {
+      std::cout << "; scalar range [" << globalScalarMin << ", " << globalScalarMax
+                << "]";
+    }
     if (logScaleInput) {
       std::cout << " (log scaled)";
     }
@@ -1834,11 +1842,15 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
                              "' does not exist");
   }
 
-  SceneGeometry geometry = loadPlotFileGeometry(options.plotfilePath,
-                                                options.variableName,
-                                                options.minLevel,
-                                                options.maxLevel,
-                                                options.logScaleInput);
+  const bool hasScalarOverride = options.scalarRange.has_value();
+
+  SceneGeometry geometry =
+      loadPlotFileGeometry(options.plotfilePath,
+                           options.variableName,
+                           options.minLevel,
+                           options.maxLevel,
+                           options.logScaleInput,
+                           /*normalizeToDataRange=*/!hasScalarOverride);
   if (!geometry.hasProcessedScalarRange) {
     throw std::runtime_error(
         "Internal error: processed scalar range unavailable for color mapping.");
@@ -1867,8 +1879,29 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
     return physicalValue;
   };
 
+  float normalizationMin = processedMin;
+  float normalizationMax = processedMax;
+  float processedMinOverride = processedMin;
+  float processedMaxOverride = processedMax;
+  if (hasScalarOverride) {
+    processedMinOverride = toProcessed(options.scalarRange->first);
+    processedMaxOverride = toProcessed(options.scalarRange->second);
+    if (!(processedMinOverride < processedMaxOverride)) {
+      throw std::invalid_argument(
+          "scalar_range must contain two values with min < max.");
+    }
+    normalizationMin = processedMinOverride;
+    normalizationMax = processedMaxOverride;
+  }
+
+  const float normalizationSpan = normalizationMax - normalizationMin;
+  if (!(normalizationSpan > 0.0f) || !std::isfinite(normalizationSpan)) {
+    throw std::runtime_error(
+        "Failed to establish a finite scalar range for color mapping.");
+  }
+
   const auto toNormalized = [&](float processedValue) -> float {
-    return (processedValue - processedMin) / processedSpan;
+    return (processedValue - normalizationMin) / normalizationSpan;
   };
 
   const auto clampNormalized = [](float value) -> float {
@@ -1879,9 +1912,19 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
     return std::clamp(value, 0.0f, 1.0f);
   };
 
+  if (hasScalarOverride) {
+    const float inverseSpan = 1.0f / normalizationSpan;
+    for (auto& box : geometry.localBoxes) {
+      for (float& value : box.cellValues) {
+        const float normalized = (value - normalizationMin) * inverseSpan;
+        value = std::clamp(normalized, 0.0f, 1.0f);
+      }
+    }
+    geometry.scalarRange = {0.0f, 1.0f};
+    geometry.hasScalarRange = true;
+  }
+
   if (options.scalarRange) {
-    const float processedMinOverride = toProcessed(options.scalarRange->first);
-    const float processedMaxOverride = toProcessed(options.scalarRange->second);
     float normalizedMin = clampNormalized(toNormalized(processedMinOverride));
     float normalizedMax = clampNormalized(toNormalized(processedMaxOverride));
     if (!(normalizedMin < normalizedMax)) {

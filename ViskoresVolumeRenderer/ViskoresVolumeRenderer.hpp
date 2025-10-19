@@ -124,7 +124,8 @@ class ViskoresVolumeRenderer {
                                      const std::string& variableName,
                                      int requestedMinLevel,
                                      int requestedMaxLevel,
-                                     bool logScaleInput) const;
+                                     bool logScaleInput,
+                                     bool normalizeToDataRange = true) const;
   VolumeBounds computeGlobalBounds(const std::vector<AmrBox>& boxes,
                                    bool hasExplicitBounds,
                                    const VolumeBounds& explicitBounds) const;
