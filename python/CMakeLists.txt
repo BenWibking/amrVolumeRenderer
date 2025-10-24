@@ -2,8 +2,20 @@ cmake_minimum_required(VERSION 3.15)
 
 include(../CMake/amrVolumeRendererMacros.cmake)
 
-find_package(Viskores QUIET)
-if(NOT Viskores_FOUND)
+set(_amrvr_python_have_viskores OFF)
+if(AMRVR_VISKORES_FROM_SUPERBUILD)
+  set(_amrvr_python_have_viskores ON)
+elseif(TARGET viskores::rendering)
+  set(Viskores_FOUND ON)
+  set(_amrvr_python_have_viskores ON)
+else()
+  find_package(Viskores QUIET)
+  if(Viskores_FOUND)
+    set(_amrvr_python_have_viskores ON)
+  endif()
+endif()
+
+if(NOT _amrvr_python_have_viskores)
   message(STATUS "Skipping amrVolumeRenderer Python bindings (Viskores not found)")
   return()
 endif()
@@ -21,6 +33,25 @@ nanobind_add_module(amrVolumeRenderer_ext MODULE
 
 amrVolumeRenderer_target_features(amrVolumeRenderer_ext)
 
+set(_amrvr_nanobind_system_includes "")
+if(DEFINED nanobind_SOURCE_DIR)
+  list(APPEND _amrvr_nanobind_system_includes
+       "${nanobind_SOURCE_DIR}/include")
+endif()
+if(TARGET nanobind::nanobind)
+  get_target_property(_amrvr_nanobind_iface nanobind::nanobind
+                      INTERFACE_INCLUDE_DIRECTORIES)
+  if(_amrvr_nanobind_iface)
+    list(APPEND _amrvr_nanobind_system_includes "${_amrvr_nanobind_iface}")
+  endif()
+endif()
+if(_amrvr_nanobind_system_includes)
+  target_include_directories(amrVolumeRenderer_ext SYSTEM PRIVATE
+                             ${_amrvr_nanobind_system_includes})
+endif()
+unset(_amrvr_nanobind_system_includes)
+unset(_amrvr_nanobind_iface)
+
 target_link_libraries(amrVolumeRenderer_ext
   PRIVATE
     amrVolumeRendererCommon
@@ -33,7 +64,8 @@ if(TARGET viskores::rendering)
 endif()
 
 if(DEFINED Viskores_INCLUDE_DIRS)
-  target_include_directories(amrVolumeRenderer_ext PRIVATE ${Viskores_INCLUDE_DIRS})
+  target_include_directories(amrVolumeRenderer_ext SYSTEM PRIVATE
+                             ${Viskores_INCLUDE_DIRS})
 endif()
 
 if(DEFINED Viskores_LIBRARIES)

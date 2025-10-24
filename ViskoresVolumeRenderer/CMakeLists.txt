@@ -21,14 +21,24 @@ if(DEFINED AMRVOLUMERENDERER_ENABLE_VISKORES)
   endif()
 endif()
 
-find_package(Viskores QUIET)
+set(_amrvr_have_viskores OFF)
+if(AMRVR_VISKORES_FROM_SUPERBUILD)
+  set(_amrvr_have_viskores ON)
+elseif(TARGET viskores::rendering)
+  set(_amrvr_have_viskores ON)
+else()
+  find_package(Viskores QUIET)
+  if(Viskores_FOUND)
+    set(_amrvr_have_viskores ON)
+  endif()
+endif()
 
-if(NOT Viskores_FOUND AND _amrVolumeRendererRequireViskores)
+if(NOT _amrvr_have_viskores AND _amrVolumeRendererRequireViskores)
   message(FATAL_ERROR "AMRVOLUMERENDERER_ENABLE_VISKORES=ON but Viskores was not found. "
                       "Provide Viskores via CMake package discovery to build ViskoresVolumeRenderer.")
 endif()
 
-if(Viskores_FOUND)
+if(_amrvr_have_viskores)
   message(STATUS "Building ViskoresVolumeRenderer with Viskores support")
 
   set(AMReX_SPACEDIM 3 CACHE STRING "AMReX dimension" FORCE)
@@ -67,8 +77,23 @@ if(Viskores_FOUND)
     target_link_libraries(ViskoresVolumeRenderer PRIVATE viskores::rendering)
   endif()
 
+  if(NOT DEFINED Viskores_LIBRARIES AND TARGET viskores::rendering)
+    set(Viskores_LIBRARIES viskores::rendering CACHE INTERNAL
+        "Viskores rendering target propagated for downstream consumers.")
+  endif()
+
+  if(NOT DEFINED Viskores_INCLUDE_DIRS AND TARGET viskores::cont)
+    get_target_property(_viskores_interface_includes viskores::cont INTERFACE_INCLUDE_DIRECTORIES)
+    if(_viskores_interface_includes)
+      set(Viskores_INCLUDE_DIRS "${_viskores_interface_includes}" CACHE INTERNAL
+          "Viskores include directories propagated for downstream consumers.")
+    endif()
+    unset(_viskores_interface_includes)
+  endif()
+
   if(DEFINED Viskores_INCLUDE_DIRS)
-    target_include_directories(ViskoresVolumeRenderer PRIVATE ${Viskores_INCLUDE_DIRS})
+    target_include_directories(ViskoresVolumeRenderer SYSTEM PRIVATE
+                               ${Viskores_INCLUDE_DIRS})
   endif()
 
   if(DEFINED Viskores_LIBRARIES)
