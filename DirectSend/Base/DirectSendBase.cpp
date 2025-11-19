@@ -10,6 +10,7 @@
 #include "DirectSendBase.hpp"
 
 #include <Common/LayeredImageInterface.hpp>
+#include <Common/LayeredVolumeImage.hpp>
 #include <algorithm>
 #include <cassert>
 #include <limits>
@@ -31,6 +32,16 @@ struct IncomingDirectSendImage {
   std::vector<MPI_Request> receiveRequests;
   enum Status { WAITING, READY, EMPTY } status = WAITING;
 };
+
+inline std::size_t toSize(int value) {
+  assert(value >= 0);
+  return static_cast<std::size_t>(value);
+}
+
+inline int toInt(std::size_t value) {
+  assert(value <= static_cast<std::size_t>(std::numeric_limits<int>::max()));
+  return static_cast<int>(value);
+}
 
 }  // namespace
 
@@ -93,26 +104,27 @@ static void PostReceives(
                 rangeBegin,
                 rangeEnd);
 
-  incomingImagesOut.resize(sendGroupSize);
+  incomingImagesOut.resize(toSize(sendGroupSize));
   for (int sendGroupIndex = 0; sendGroupIndex < sendGroupSize;
        ++sendGroupIndex) {
+    const auto targetIndex = toSize(sendGroupIndex);
     if (sendGroupIndex != sendGroupRank) {
       int sourceRank = getRealRank(sendGroup, sendGroupIndex, communicator);
-      incomingImagesOut[sendGroupIndex].imageBuffer =
+      incomingImagesOut[targetIndex].imageBuffer =
           localImage->createNew(rangeBegin, rangeEnd);
-      incomingImagesOut[sendGroupIndex].receiveRequests =
-          incomingImagesOut[sendGroupIndex].imageBuffer->IReceive(sourceRank,
-                                                                  communicator);
-      incomingImagesOut[sendGroupIndex].status =
+      incomingImagesOut[targetIndex].receiveRequests =
+          incomingImagesOut[targetIndex].imageBuffer->IReceive(sourceRank,
+                                                               communicator);
+      incomingImagesOut[targetIndex].status =
           IncomingDirectSendImage::WAITING;
     } else {
       // "Sending" to self. Just record a shallow copy of the image.
       std::unique_ptr<const Image> selfSendImage =
           localImage->window(rangeBegin, rangeEnd);
-      incomingImagesOut[sendGroupIndex].receiveRequests.clear();
-      incomingImagesOut[sendGroupIndex].imageBuffer.reset(
+      incomingImagesOut[targetIndex].receiveRequests.clear();
+      incomingImagesOut[targetIndex].imageBuffer.reset(
           const_cast<Image*>(selfSendImage.release()));
-      incomingImagesOut[sendGroupIndex].status = IncomingDirectSendImage::READY;
+      incomingImagesOut[targetIndex].status = IncomingDirectSendImage::READY;
     }
   }
 }
@@ -138,9 +150,10 @@ static void PostSends(
   int recvGroupSize;
   MPI_Group_size(recvGroup, &recvGroupSize);
 
-  outgoingImagesOut.resize(recvGroupSize);
+  outgoingImagesOut.resize(toSize(recvGroupSize));
   for (int recvGroupIndex = 0; recvGroupIndex < recvGroupSize;
        ++recvGroupIndex) {
+    const auto targetIndex = toSize(recvGroupIndex);
     if (recvGroupIndex != recvGroupRank) {
       int rangeBegin;
       int rangeEnd;
@@ -156,7 +169,7 @@ static void PostSends(
           outImage->ISend(destRank, communicator);
       requestsOut.insert(
           requestsOut.end(), newRequests.begin(), newRequests.end());
-      outgoingImagesOut[recvGroupIndex].swap(outImage);
+      outgoingImagesOut[targetIndex].swap(outImage);
     } else {
       // Do not need to send. PostReceives just did a shallow copy of the data.
     }
@@ -189,16 +202,23 @@ static std::unique_ptr<Image> ProcessIncomingImages(
 
   while (numPending > 0) {
     int receiveIndex;
-    MPI_Waitany(lastRequests.size(),
+    const int waitCount = toInt(lastRequests.size());
+    MPI_Waitany(waitCount,
                 lastRequests.data(),
                 &receiveIndex,
                 MPI_STATUSES_IGNORE);
+    if (receiveIndex == MPI_UNDEFINED) {
+      continue;
+    }
+    const auto resolvedIndex = toSize(receiveIndex);
     --numPending;
     // Make sure all the messages have come in
-    MPI_Waitall(incoming[receiveIndex].receiveRequests.size(),
-                incoming[receiveIndex].receiveRequests.data(),
+    const int remainingCount =
+        toInt(incoming[resolvedIndex].receiveRequests.size());
+    MPI_Waitall(remainingCount,
+                incoming[resolvedIndex].receiveRequests.data(),
                 MPI_STATUSES_IGNORE);
-    incoming[receiveIndex].status = IncomingDirectSendImage::READY;
+    incoming[resolvedIndex].status = IncomingDirectSendImage::READY;
 
     // Check all incoming images and find candidates to blend
     for (auto targetIn = incoming.begin(); targetIn != incoming.end();
@@ -253,7 +273,8 @@ std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
   std::unique_ptr<Image> resultImage = ProcessIncomingImages(incomingImages);
 
   if (sendRequests.size() > 0) {
-    MPI_Waitall(sendRequests.size(), sendRequests.data(), MPI_STATUSES_IGNORE);
+    const int sendCount = toInt(sendRequests.size());
+    MPI_Waitall(sendCount, sendRequests.data(), MPI_STATUSES_IGNORE);
   }
 
   return resultImage;
@@ -264,7 +285,15 @@ DirectSendBase::DirectSendBase() = default;
 std::unique_ptr<Image> DirectSendBase::compose(Image* localImage,
                                                MPI_Group group,
                                                MPI_Comm communicator) {
-  if (auto* layered = dynamic_cast<LayeredImageInterface*>(localImage)) {
+  LayeredImageInterface* layered =
+      dynamic_cast<LayeredImageInterface*>(localImage);
+  if (layered == nullptr) {
+    if (auto* layeredVolume =
+            dynamic_cast<LayeredVolumeImage*>(localImage)) {
+      layered = layeredVolume;
+    }
+  }
+  if (layered != nullptr) {
     return this->composeLayered(localImage, *layered, group, communicator);
   }
 

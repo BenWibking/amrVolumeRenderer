@@ -47,7 +47,7 @@ set(AMRVOLUMERENDERER_VISKORES_GIT_REPOSITORY
     "https://github.com/Viskores/viskores.git"
     CACHE STRING "Git repository used to fetch Viskores.")
 set(AMRVOLUMERENDERER_VISKORES_GIT_TAG
-    "v1.1.0-rc1"
+    "v1.1.0"
     CACHE STRING "Git tag or commit for the Viskores superbuild.")
 option(AMRVOLUMERENDERER_VISKORES_ENABLE_LOGGING
        "Enable Viskores' internal logging when building from source."

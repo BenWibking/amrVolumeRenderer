@@ -64,6 +64,12 @@ set_source_files_properties(${headers} HEADER_ONLY TRUE)
 amrVolumeRenderer_target_features(amrVolumeRendererCommon)
 target_link_libraries(amrVolumeRendererCommon PRIVATE PNG::PNG)
 
+install(TARGETS amrVolumeRendererCommon
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
 if(AMRVOLUMERENDERER_ENABLE_TESTING)
   add_subdirectory(Testing)
 endif()

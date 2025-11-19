@@ -65,8 +65,48 @@ std::unique_ptr<Image> LayeredVolumeImage::copySubrange(int, int) const {
   throw std::logic_error("LayeredVolumeImage::copySubrange not supported");
 }
 
-std::unique_ptr<const Image> LayeredVolumeImage::window(int, int) const {
-  throw std::logic_error("LayeredVolumeImage::window not supported");
+std::unique_ptr<const Image> LayeredVolumeImage::window(int subregionBegin,
+                                                        int subregionEnd) const {
+  if (subregionBegin < 0 || subregionEnd < subregionBegin) {
+    throw std::out_of_range("LayeredVolumeImage::window invalid subregion");
+  }
+
+  const int pixelCount = this->getNumberOfPixels();
+  if (subregionEnd > pixelCount) {
+    throw std::out_of_range("LayeredVolumeImage::window subregion past end");
+  }
+
+  std::vector<std::unique_ptr<ImageRGBAFloatColorDepthSort>> windowLayers;
+  windowLayers.reserve(this->layers.size());
+  for (const auto& layer : this->layers) {
+    std::unique_ptr<const Image> layerWindow =
+        layer->window(subregionBegin, subregionEnd);
+    const auto* typedWindow =
+        dynamic_cast<const ImageRGBAFloatColorDepthSort*>(layerWindow.release());
+    if (typedWindow == nullptr) {
+      throw std::logic_error(
+          "LayeredVolumeImage::window unexpected layer image type");
+    }
+    windowLayers.emplace_back(
+        const_cast<ImageRGBAFloatColorDepthSort*>(typedWindow));
+  }
+
+  std::unique_ptr<ImageRGBAFloatColorDepthSort> prototypeCopy;
+  if (this->prototype) {
+    prototypeCopy.reset(new ImageRGBAFloatColorDepthSort(*this->prototype));
+  }
+
+  auto windowedImage = std::make_unique<LayeredVolumeImage>(
+      this->getWidth(),
+      this->getHeight(),
+      std::move(windowLayers),
+      this->depthHints,
+      std::move(prototypeCopy));
+  windowedImage->resizeRegion(subregionBegin + this->getRegionBegin(),
+                              subregionEnd + this->getRegionBegin());
+  windowedImage->setValidViewport(this->getValidViewport());
+
+  return std::unique_ptr<const Image>(windowedImage.release());
 }
 
 std::vector<MPI_Request> LayeredVolumeImage::ISend(int, MPI_Comm) const {

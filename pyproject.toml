@@ -48,3 +48,12 @@ sdist.include = [
   "LICENSE.TXT",
   "README.md",
 ]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[tool.pixi.pypi-dependencies]
+amrVolumeRenderer = { path = ".", editable = true }
+
+[tool.pixi.tasks]

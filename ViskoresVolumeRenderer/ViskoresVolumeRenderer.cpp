@@ -36,6 +36,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
@@ -1664,10 +1665,30 @@ int ViskoresVolumeRenderer::renderSingleTrial(
     } else if (auto asSparse =
                    dynamic_cast<ImageSparse*>(compositedImage.get())) {
       fullImage = asSparse->uncompress();
+    } else if (auto asColorDepth =
+                   dynamic_cast<ImageRGBAFloatColorDepthSort*>(
+                       compositedImage.get())) {
+      fullImage.reset(static_cast<ImageFull*>(asColorDepth));
+      compositedImage.release();
     } else {
       if (rank == 0) {
-        std::cerr << "Unsupported image type returned by compositor."
-                  << std::endl;
+        std::cerr << "Unsupported image type returned by compositor.";
+#if defined(__cpp_rtti)
+        if (compositedImage) {
+          const Image& imageRef = *compositedImage;
+          std::cerr << " type=" << typeid(imageRef).name();
+          if (dynamic_cast<ImageRGBAFloatColorDepthSort*>(compositedImage.get())) {
+            std::cerr << " (matches ImageRGBAFloatColorDepthSort)";
+          }
+          if (dynamic_cast<ImageFull*>(compositedImage.get())) {
+            std::cerr << " (matches ImageFull)";
+          }
+          if (dynamic_cast<ImageSparse*>(compositedImage.get())) {
+            std::cerr << " (matches ImageSparse)";
+          }
+        }
+#endif
+        std::cerr << std::endl;
       }
       MPI_Abort(MPI_COMM_WORLD, 1);
     }

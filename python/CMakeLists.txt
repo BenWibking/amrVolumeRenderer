@@ -119,8 +119,10 @@ endif()
 list(REMOVE_DUPLICATES _amrVolumeRenderer_ext_rpaths)
 
 if(APPLE)
+  list(APPEND _amrVolumeRenderer_ext_rpaths "@loader_path/../lib")
   list(PREPEND _amrVolumeRenderer_ext_rpaths "@loader_path")
 elseif(UNIX)
+  list(APPEND _amrVolumeRenderer_ext_rpaths "$ORIGIN/../lib")
   list(PREPEND _amrVolumeRenderer_ext_rpaths "$ORIGIN")
 endif()
 
