@@ -8,9 +8,13 @@ cmake_minimum_required(VERSION 3.14)
 include(../CMake/amrVolumeRendererMacros.cmake)
 include(FetchContent)
 
+set(AMRVOLUMERENDERER_AMREX_RELEASE_TAG "26.01" CACHE STRING
+    "AMReX release tag to fetch from GitHub releases.")
+set(AMRVOLUMERENDERER_AMREX_RELEASE_URL
+    "https://github.com/AMReX-Codes/amrex/releases/download/${AMRVOLUMERENDERER_AMREX_RELEASE_TAG}/amrex-${AMRVOLUMERENDERER_AMREX_RELEASE_TAG}.tar.gz"
+    CACHE STRING "AMReX release tarball URL.")
 FetchContent_Declare(amrex
-  GIT_REPOSITORY https://github.com/AMReX-Codes/amrex.git
-  GIT_TAG 546a888ef0417648b5086a13b3eb3cd13f185070
+  URL ${AMRVOLUMERENDERER_AMREX_RELEASE_URL}
 )
 
 # Allow users to force Viskores usage from the command line.

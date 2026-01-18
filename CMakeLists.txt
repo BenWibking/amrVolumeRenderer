@@ -38,13 +38,15 @@ set(NB_PYTHON_TARGET Python3::Module CACHE INTERNAL "Python target for nanobind"
 FetchContent_Declare(nanobind
   GIT_REPOSITORY https://github.com/wjakob/nanobind.git
   GIT_TAG dd350fe81931a1b362196cb415d188c36422766e
+  GIT_SUBMODULES_RECURSE TRUE
+  GIT_PROGRESS TRUE
 )
 FetchContent_MakeAvailable(nanobind)
 
 option(AMRVOLUMERENDERER_SUPERBUILD_VISKORES
        "Download and build Viskores with FetchContent for the renderer." ON)
 set(AMRVOLUMERENDERER_VISKORES_GIT_REPOSITORY
-    "https://github.com/Viskores/viskores.git"
+    "https://github.com/Viskores/viskores"
     CACHE STRING "Git repository used to fetch Viskores.")
 set(AMRVOLUMERENDERER_VISKORES_GIT_TAG
     "v1.1.0"
@@ -58,9 +60,7 @@ if(AMRVOLUMERENDERER_SUPERBUILD_VISKORES)
   if(NOT TARGET viskores::rendering)
     set(_amrvr_fetch_viskores ON)
     FetchContent_Declare(viskores
-      GIT_REPOSITORY ${AMRVOLUMERENDERER_VISKORES_GIT_REPOSITORY}
-      GIT_TAG ${AMRVOLUMERENDERER_VISKORES_GIT_TAG}
-      GIT_SHALLOW TRUE
+      URL ${AMRVOLUMERENDERER_VISKORES_GIT_REPOSITORY}/archive/refs/tags/${AMRVOLUMERENDERER_VISKORES_GIT_TAG}.tar.gz
     )
   endif()
 
