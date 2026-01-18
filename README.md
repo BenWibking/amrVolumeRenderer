@@ -18,15 +18,20 @@ offline batch jobs and interactive exploration.
 
 ## Quick Start
 
-Install Viskores first; the renderer relies on its libraries being available when
-you configure the project. With Spack:
+Viskores is built as a superbuild by default. The configure step will fetch and
+compile it via CMake `FetchContent` unless you opt out. To use a preinstalled
+Viskores instead, disable the superbuild and point CMake at the package:
+
+```sh
+cmake -S . -B build -DAMRVOLUMERENDERER_SUPERBUILD_VISKORES=OFF -DViskores_DIR=/path/to/viskores
+```
+
+With Spack, this typically looks like:
 
 ```sh
 spack install viskores
+spack load viskores
 ```
-
-Activate the package in your environment (for example, `spack load viskores`)
-before running CMake or provide the install prefix via `Viskores_DIR`.
 
 1. Clone the repository:
 
@@ -44,8 +49,9 @@ before running CMake or provide the install prefix via `Viskores_DIR`.
    cmake --build build --target all -j
    ```
 
-   Requirements: CMake 3.3+, a C++11 (or newer) compiler, libpng, Viskores, and
-   an MPI implementation such as OpenMPI or MPICH.
+   Requirements: CMake 3.3+, a C++11 (or newer) compiler, libpng, and
+   an MPI implementation such as OpenMPI or MPICH. Viskores is built by the
+   superbuild unless you supply it via `Viskores_DIR`.
 
 3. Launch the ViskoresVolumeRenderer driver (replace `plt0010` with your AMReX plotfile):
 
