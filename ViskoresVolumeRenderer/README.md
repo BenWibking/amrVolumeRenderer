@@ -1,19 +1,17 @@
-# Viskores Volume Renderer
+# AMReX Volume Renderer
 
-This miniapp demonstrates volumetric rendering with Viskores' `MapperVolume` combined with amrVolumeRenderer's lattice compositing pipeline.
+This miniapp demonstrates volumetric rendering with an AMReX-backed GPU ray-marcher combined with amrVolumeRenderer's lattice compositing pipeline.
 
 ## Overview
 
 - Each MPI rank owns a collection of non-overlapping AMR boxes (uniform bricks with their own cell spacing).
-- Every box is passed directly to Viskores as an individual uniform dataset built from the provided cell-centered values.
-- Viskores' volume mapper shades each brick while amrVolumeRenderer's DirectSend compositor blends the per-rank renders after visibility ordering.
+- Every box is passed directly to the AMReX ray marcher as a uniform brick built from the provided cell-centered values.
+- The AMReX volume mapper shades each brick while amrVolumeRenderer's DirectSend compositor blends the per-rank renders after visibility ordering.
 
 ## Building
 
-The target builds only when Viskores is discoverable by CMake.
-
 ```bash
-cmake -S . -B build -DAMRVOLUMERENDERER_ENABLE_VISKORES=ON -DViskores_DIR=/path/to/viskores
+cmake -S . -B build
 cmake --build build --target ViskoresVolumeRenderer -j
 ```
 
@@ -40,6 +38,8 @@ PNG outputs are saved as 8-bit RGB with the alpha channel discarded.
 The rendering pipeline can be invoked programmatically. Provide a scene description (per-rank boxes plus optional explicit bounds), configure rendering parameters, and call `renderScene`:
 
 ```cpp
+#include <AMReX_IntVect.H>
+#include <AMReX_RealVect.H>
 #include "ViskoresVolumeRenderer.hpp"
 
 int main(int argc, char** argv) {
@@ -49,9 +49,9 @@ int main(int argc, char** argv) {
 
   ViskoresVolumeRenderer::SceneGeometry geometry;
   ViskoresVolumeRenderer::AmrBox box;
-  box.minCorner = {-0.5f, -0.5f, -0.5f};
-  box.maxCorner = {0.5f, 0.5f, 0.5f};
-  box.cellDimensions = viskores::Id3(32, 32, 32);
+  box.minCorner = amrex::RealVect(-0.5, -0.5, -0.5);
+  box.maxCorner = amrex::RealVect(0.5, 0.5, 0.5);
+  box.cellDimensions = amrex::IntVect(32, 32, 32);
   const float cellValue = 1.0f;  // pick a distinct scalar per AMR box
   box.cellValues.assign(32 * 32 * 32, cellValue);
   geometry.localBoxes.push_back(box);
@@ -63,9 +63,9 @@ int main(int argc, char** argv) {
   params.antialiasing = 4;  // 2x2 supersampling
 
   ViskoresVolumeRenderer::CameraParameters camera;
-  camera.eye = {0.0f, 0.5f, 3.0f};
-  camera.lookAt = {0.0f, 0.0f, 0.0f};
-  camera.up = {0.0f, 1.0f, 0.0f};
+  camera.eye = amrex::RealVect(0.0, 0.5, 3.0);
+  camera.lookAt = amrex::RealVect(0.0, 0.0, 0.0);
+  camera.up = amrex::RealVect(0.0, 1.0, 0.0);
   camera.fovYDegrees = 45.0f;
   camera.nearPlane = 0.1f;
   camera.farPlane = 20.0f;
@@ -87,4 +87,4 @@ to generate an orbiting view automatically using the configured camera seed.
 - An `antialiasing` supersampling factor (1, 4, 9, …) controls screen-space supersampling; the ray-march step size now follows the native AMR spacing and brightness stays consistent across levels.
 - Opacity samples are normalized by the ray step so AMR refinement does not change the apparent density of a feature.
 - The camera animates around the volume using a randomized orbit (seeded by `cameraSeed`) to illustrate how the composited result changes with view direction.
-- Camera state (eye, aim point, up vector, FOV, and clipping range) is computed explicitly for each render pass and passed straight to Viskores, avoiding any OpenGL matrix conversions.
+- Camera state (eye, aim point, up vector, FOV, and clipping range) is computed explicitly for each render pass and passed straight to the AMReX ray marcher, avoiding any OpenGL matrix conversions.

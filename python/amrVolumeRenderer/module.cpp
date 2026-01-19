@@ -1,11 +1,11 @@
 #include <AMReX.H>
+#include <AMReX_RealVect.H>
 #include <mpi.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/array.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
-#include <viskores/VectorAnalysis.h>
 
 #include <ViskoresVolumeRenderer/ViskoresVolumeRenderer.hpp>
 #include <array>
@@ -174,8 +174,8 @@ int render_volume(const std::string& plotfilePath,
 
   if (upVector) {
     const auto& vector = *upVector;
-    viskores::Vec3f_32 up(vector[0], vector[1], vector[2]);
-    const float length = viskores::Magnitude(up);
+    amrex::RealVect up(vector[0], vector[1], vector[2]);
+    const float length = static_cast<float>(up.vectorLength());
     if (!(length > 0.0f) || !std::isfinite(length)) {
       throw std::invalid_argument(
           "up_vector must contain finite, non-zero components");
@@ -210,15 +210,15 @@ int render_volume(const std::string& plotfilePath,
     }
 
     const auto toVec3 = [](const std::array<float, 3>& values) {
-      return viskores::Vec3f_32(values[0], values[1], values[2]);
+      return amrex::RealVect(values[0], values[1], values[2]);
     };
 
-    viskores::Vec3f_32 eye = toVec3(*cameraEye);
-    viskores::Vec3f_32 lookAt = toVec3(*cameraLookAt);
+    amrex::RealVect eye = toVec3(*cameraEye);
+    amrex::RealVect lookAt = toVec3(*cameraLookAt);
     const std::array<float, 3> upArray =
         cameraUp.value_or(std::array<float, 3>{0.0f, 1.0f, 0.0f});
-    viskores::Vec3f_32 up = toVec3(upArray);
-    const float upLength = viskores::Magnitude(up);
+    amrex::RealVect up = toVec3(upArray);
+    const float upLength = static_cast<float>(up.vectorLength());
     if (!(upLength > 0.0f) || !std::isfinite(upLength)) {
       throw std::invalid_argument(
           "camera_up must contain finite, non-zero components");
@@ -263,7 +263,7 @@ int render_volume(const std::string& plotfilePath,
 
 NB_MODULE(amrVolumeRenderer_ext, module) {
   module.doc() =
-      "Python bindings for the amrVolumeRenderer Viskores volume renderer.";
+      "Python bindings for the amrVolumeRenderer AMReX volume renderer.";
 
   module.def(
       "initialize_runtime",

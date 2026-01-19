@@ -5,10 +5,6 @@
 #ifndef AMRVOLUMERENDERER_VISIBILITY_ORDERING_HPP
 #define AMRVOLUMERENDERER_VISIBILITY_ORDERING_HPP
 
-#include <amrVolumeRendererConfig.h>
-
-#if defined(AMRVOLUMERENDERER_ENABLE_VISKORES)
-
 #include <Common/VolumeTypes.hpp>
 
 #include <mpi.h>
@@ -25,7 +21,5 @@ MPI_Group BuildVisibilityOrderedGroup(
     bool writeVisibilityGraph,
     const std::vector<amrVolumeRenderer::volume::AmrBox>& localBoxes,
     MPI_Comm communicator);
-
-#endif  // AMRVOLUMERENDERER_ENABLE_VISKORES
 
 #endif  // AMRVOLUMERENDERER_VISIBILITY_ORDERING_HPP

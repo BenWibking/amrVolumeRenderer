@@ -1,4 +1,4 @@
-"""Python wrapper around the amrVolumeRenderer Viskores volume renderer."""
+"""Python wrapper around the amrVolumeRenderer AMReX volume renderer."""
 
 from __future__ import annotations
 

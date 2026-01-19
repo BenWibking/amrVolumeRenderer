@@ -1,9 +1,8 @@
 #ifndef VISKORES_VOLUME_RENDERER_HPP
 #define VISKORES_VOLUME_RENDERER_HPP
 
-#include <amrVolumeRendererConfig.h>
+#include <AMReX_RealVect.H>
 #include <mpi.h>
-#include <viskores/Types.h>
 
 #include <Common/Compositor.hpp>
 #include <Common/ImageFull.hpp>
@@ -14,11 +13,7 @@
 #include <utility>
 #include <vector>
 
-#ifndef AMRVOLUMERENDERER_ENABLE_VISKORES
-#error "ViskoresVolumeRenderer requires AMRVOLUMERENDERER_ENABLE_VISKORES"
-#endif
-
-/// \brief Miniapp that renders distributed volumetric data using Viskores.
+/// \brief Miniapp that renders distributed volumetric data using AMReX.
 class ViskoresVolumeRenderer {
  public:
   ViskoresVolumeRenderer();
@@ -40,7 +35,7 @@ class ViskoresVolumeRenderer {
     bool useVisibilityGraph = true;
     bool writeVisibilityGraph = false;
     unsigned int cameraSeed = 91021u;
-    viskores::Vec3f_32 cameraUp = viskores::Vec3f_32(0.0f, 1.0f, 0.0f);
+    amrex::RealVect cameraUp = amrex::RealVect(0.0, 1.0, 0.0);
     bool useCustomUp = false;
     bool printCamera = false;
   };
