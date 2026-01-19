@@ -360,7 +360,7 @@ using ParsedOptions = ViskoresVolumeRenderer::RunOptions;
 
 void printUsage() {
   std::cout
-      << "Usage: ViskoresVolumeRenderer [options] plotfile\n"
+      << "Usage: volume_renderer [options] plotfile\n"
       << "  --width W        Image width (default: 512)\n"
       << "  --height H       Image height (default: 512)\n"
       << "  --antialiasing A Supersampling factor (positive integer square, "
@@ -602,7 +602,7 @@ void ViskoresVolumeRenderer::validateRenderParameters(
 
 void ViskoresVolumeRenderer::initialize() const {
   if (rank == 0) {
-    std::cout << "ViskoresVolumeRenderer: Using AMReX volume mapper on "
+    std::cout << "volume_renderer: Using AMReX volume mapper on "
               << numProcs << " ranks" << std::endl;
   }
 }

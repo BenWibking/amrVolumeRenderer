@@ -36,7 +36,7 @@ if(TARGET amrex)
   endif()
 endif()
 
-amrVolumeRenderer_executable(ViskoresVolumeRenderer
+amrVolumeRenderer_executable(volume_renderer
   SOURCES
     ViskoresVolumeRenderer.cpp
     main.cpp
@@ -48,4 +48,4 @@ amrVolumeRenderer_executable(ViskoresVolumeRenderer
     ../DirectSend/Base/DirectSendBase.hpp
 )
 
-target_link_libraries(ViskoresVolumeRenderer PRIVATE amrex)
+target_link_libraries(volume_renderer PRIVATE amrex)

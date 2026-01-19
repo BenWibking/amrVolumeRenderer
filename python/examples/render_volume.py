@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Convenience driver for the amrVolumeRenderer Python bindings.
 
-This mirrors the CLI of the ViskoresVolumeRenderer executable but allows the
+This mirrors the CLI of the volume_renderer executable but allows the
 workflow to be scripted entirely from Python. Run it under ``mpirun`` to drive
 multi-rank renders, e.g.:
 

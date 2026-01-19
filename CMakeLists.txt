@@ -50,6 +50,6 @@ include(CMake/amrVolumeRendererMacros.cmake)
 
 add_subdirectory(ViskoresVolumeRenderer)
 
-if (TARGET ViskoresVolumeRenderer)
+if (TARGET volume_renderer)
   add_subdirectory(python)
 endif()

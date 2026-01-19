@@ -297,7 +297,7 @@ NB_MODULE(amrVolumeRenderer_ext, module) {
       nb::arg("camera_far") = nb::none(),
       nb::arg("color_map") = nb::none(),
       "Render a plotfile using the DirectSend compositor.\n\n"
-      "Parameters mirror the command line flags of the ViskoresVolumeRenderer "
+      "Parameters mirror the command line flags of the volume_renderer "
       "executable. Additional keyword arguments allow specifying "
       "scalar_range=(min, max), an explicit camera via camera_* options, and "
       "color_map=[(value, r, g, b, a), ...] with physical scalar values.");

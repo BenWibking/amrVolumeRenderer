@@ -12,13 +12,13 @@ This miniapp demonstrates volumetric rendering with an AMReX-backed GPU ray-marc
 
 ```bash
 cmake -S . -B build
-cmake --build build --target ViskoresVolumeRenderer -j
+cmake --build build --target volume_renderer -j
 ```
 
 ## Running
 
 ```bash
-mpirun -np 4 build/bin/ViskoresVolumeRenderer \
+mpirun -np 4 build/bin/volume_renderer \
   --width 512 --height 512 --antialiasing 4
 ```
 
