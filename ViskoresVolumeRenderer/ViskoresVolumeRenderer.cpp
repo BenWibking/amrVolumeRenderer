@@ -280,6 +280,7 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
   const float pixelRadius =
       0.5f * static_cast<float>(std::max(sqrtAntialiasing, 1));
   const float influenceRadius = pixelRadius + 0.5f;
+  const float coverageScale = 0.6f;
 
   for (const auto& edge : edges) {
     const ScreenCorner& start =
@@ -331,8 +332,8 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
         const float distY = sampleY - closestY;
         const float distance = std::sqrt(distX * distX + distY * distY);
 
-        const float coverage =
-            std::clamp(pixelRadius + 0.5f - distance, 0.0f, 1.0f);
+        const float coverage = std::clamp(
+            (pixelRadius + 0.5f - distance) * coverageScale, 0.0f, 1.0f);
         if (coverage <= 0.0f) {
           continue;
         }
