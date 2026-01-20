@@ -171,12 +171,17 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
   const float aspect =
       static_cast<float>(width) / static_cast<float>(std::max(height, 1));
 
-  const Matrix4x4 view = makeViewMatrix(
-      camera.eye, camera.lookAt, camera.up);
-  const Matrix4x4 projection = makePerspectiveMatrix(
-      camera.fovYDegrees, aspect, camera.nearPlane, camera.farPlane);
-
   Vec3 forward = safeNormalize(camera.lookAt - camera.eye);
+  Vec3 right = forward.crossProduct(camera.up);
+  const amrex::Real rightLength = right.vectorLength();
+  if (rightLength > 0.0 && std::isfinite(static_cast<double>(rightLength))) {
+    right /= rightLength;
+  } else {
+    right = Vec3(1.0, 0.0, 0.0);
+  }
+  const Vec3 upOrtho = right.crossProduct(forward);
+  const float tanHalfFov =
+      std::tan(camera.fovYDegrees * 0.5f * kPi / 180.0f);
 
   struct ScreenCorner {
     Vec3 world = Vec3(0.0f);
@@ -187,6 +192,7 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
   };
 
   std::array<ScreenCorner, 8> projectedCorners;
+  int validCorners = 0;
 
   const float widthScale = (width > 1) ? static_cast<float>(width - 1) : 0.0f;
   const float heightScale =
@@ -197,41 +203,31 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
                 (index & 2) ? bounds.maxCorner[1] : bounds.minCorner[1],
                 (index & 4) ? bounds.maxCorner[2] : bounds.minCorner[2]);
 
-    const Vec4 homogeneousCorner(
-        static_cast<float>(corner[0]),
-        static_cast<float>(corner[1]),
-        static_cast<float>(corner[2]),
-        1.0f);
-    const Vec4 viewSpace = view * homogeneousCorner;
-    const Vec4 clipSpace = projection * viewSpace;
-    const float w = clipSpace[3];
     ScreenCorner projected;
     projected.world = corner;
 
-    if (w <= 0.0f || !std::isfinite(w)) {
+    const Vec3 relative = corner - camera.eye;
+    const float depth = static_cast<float>(relative.dotProduct(forward));
+    if (!(depth > 0.0f) || !std::isfinite(depth)) {
       projectedCorners[static_cast<std::size_t>(index)] = projected;
       continue;
     }
 
-    const float invW = 1.0f / w;
-    const float ndcX = clipSpace[0] * invW;
-    const float ndcY = clipSpace[1] * invW;
-    const float ndcZ = clipSpace[2] * invW;
-
-    if (!std::isfinite(ndcX) || !std::isfinite(ndcY) || !std::isfinite(ndcZ)) {
+    const float xCam = static_cast<float>(relative.dotProduct(right));
+    const float yCam = static_cast<float>(relative.dotProduct(upOrtho));
+    const float ndcX = xCam / (depth * tanHalfFov * aspect);
+    const float ndcY = yCam / (depth * tanHalfFov);
+    if (!std::isfinite(ndcX) || !std::isfinite(ndcY)) {
       projectedCorners[static_cast<std::size_t>(index)] = projected;
       continue;
     }
 
     projected.x = (ndcX * 0.5f + 0.5f) * widthScale;
     projected.y = (ndcY * 0.5f + 0.5f) * heightScale;
-    projected.depth = static_cast<float>(
-        (corner - camera.eye).dotProduct(forward));
-    if (!std::isfinite(projected.depth)) {
-      projected.depth = camera.farPlane;
-    }
+    projected.depth = depth;
     projected.valid = true;
     projectedCorners[static_cast<std::size_t>(index)] = projected;
+    ++validCorners;
   }
 
   constexpr std::array<std::pair<int, int>, 12> edges = {
@@ -250,8 +246,9 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
 
   const Color baseLineColor(1.0f, 1.0f, 1.0f, 1.0f);
 
+  const float overlayDepth = std::numeric_limits<float>::lowest();
   const auto blendSample =
-      [&](int pixelX, int pixelY, float coverage, float depth) {
+      [&](int pixelX, int pixelY, float coverage, float /*depth*/) {
         if (pixelX < 0 || pixelX >= width || pixelY < 0 || pixelY >= height) {
           return;
         }
@@ -273,7 +270,7 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
         buffer[1] = srcGreen + buffer[1] * (1.0f - srcAlpha);
         buffer[2] = srcBlue + buffer[2] * (1.0f - srcAlpha);
         buffer[3] = srcAlpha + buffer[3] * (1.0f - srcAlpha);
-        buffer[4] = std::min(buffer[4], depth);
+        buffer[4] = overlayDepth;
       };
 
   const auto lerp = [](float v0, float v1, float t) {
@@ -354,6 +351,7 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
       }
     }
   }
+
 }
 
 using ParsedOptions = ViskoresVolumeRenderer::RunOptions;
@@ -1767,6 +1765,11 @@ int ViskoresVolumeRenderer::renderSingleTrial(
                                       sqrtAntialiasing);
       } else {
         outputImage = std::move(gatheredImage);
+      }
+
+      if (auto* asColorDepth =
+              dynamic_cast<ImageRGBAFloatColorDepthSort*>(outputImage.get())) {
+        renderBoundingBoxLayer(tightBounds, camera, 1, *asColorDepth);
       }
 
       const std::string extension = lowercaseExtension(outputFilename);
