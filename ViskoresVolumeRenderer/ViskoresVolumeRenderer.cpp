@@ -1670,18 +1670,6 @@ int ViskoresVolumeRenderer::renderSingleTrial(
       std::chrono::duration<double>(renderEnd - renderStart).count();
   reportStageTime("per-box rendering", renderSeconds);
 
-  auto boundingBoxLayer =
-      std::make_unique<ImageRGBAFloatColorDepthSort>(renderWidth, renderHeight);
-  boundingBoxLayer->clear();
-  clearDepthHints(*boundingBoxLayer, std::numeric_limits<float>::infinity());
-  renderBoundingBoxLayer(
-      tightBounds, camera, sqrtAntialiasing, *boundingBoxLayer);
-  AmrBox boundsBox;
-  boundsBox.minCorner = tightBounds.minCorner;
-  boundsBox.maxCorner = tightBounds.maxCorner;
-  depthHints.push_back(computeBoxDepthHint(boundsBox, camera));
-  localLayers.push_back(std::move(boundingBoxLayer));
-
   auto prototype =
       std::make_unique<ImageRGBAFloatColorDepthSort>(renderWidth, renderHeight);
 
