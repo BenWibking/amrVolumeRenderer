@@ -597,7 +597,7 @@ void VolumePainterViskores::paint(
 
           float distance = tmin + meshEpsilon;
           if (distance < 0.0f) {
-            distance = 0.0f;
+            distance = meshEpsilon;
           }
 
           float accumR = 0.0f;
@@ -605,18 +605,53 @@ void VolumePainterViskores::paint(
           float accumB = 0.0f;
           float accumA = 0.0f;
 
-          while (distance <= tmax && accumA < 1.0f) {
-            const float posX = originX + dirX * distance;
-            const float posY = originY + dirY * distance;
-            const float posZ = originZ + dirZ * distance;
+          auto isInside = [&](float x, float y, float z) {
+            return !(x < minCorner[0] || x > maxCorner[0] ||
+                     y < minCorner[1] || y > maxCorner[1] ||
+                     z < minCorner[2] || z > maxCorner[2]);
+          };
 
-            const float fx = (posX - minCorner[0]) / dx;
-            const float fy = (posY - minCorner[1]) / dy;
-            const float fz = (posZ - minCorner[2]) / dz;
+          float posX = originX + dirX * distance;
+          float posY = originY + dirY * distance;
+          float posZ = originZ + dirZ * distance;
+          while (distance < tmax && !isInside(posX, posY, posZ)) {
+            distance += sampleDistance;
+            posX = originX + dirX * distance;
+            posY = originY + dirY * distance;
+            posZ = originZ + dirZ * distance;
+          }
 
-            const int i = static_cast<int>(amrex::Math::floor(fx));
-            const int j = static_cast<int>(amrex::Math::floor(fy));
-            const int k = static_cast<int>(amrex::Math::floor(fz));
+          while (distance < tmax && accumA < 1.0f) {
+            if (!isInside(posX, posY, posZ)) {
+              distance += sampleDistance;
+              posX = originX + dirX * distance;
+              posY = originY + dirY * distance;
+              posZ = originZ + dirZ * distance;
+              continue;
+            }
+
+            float fx = (posX - minCorner[0]) / dx;
+            float fy = (posY - minCorner[1]) / dy;
+            float fz = (posZ - minCorner[2]) / dz;
+
+            int i = static_cast<int>(amrex::Math::floor(fx));
+            int j = static_cast<int>(amrex::Math::floor(fy));
+            int k = static_cast<int>(amrex::Math::floor(fz));
+            if (i < 0) {
+              i = 0;
+            } else if (i >= nx) {
+              i = nx - 1;
+            }
+            if (j < 0) {
+              j = 0;
+            } else if (j >= ny) {
+              j = ny - 1;
+            }
+            if (k < 0) {
+              k = 0;
+            } else if (k >= nz) {
+              k = nz - 1;
+            }
 
             if (i >= 0 && i < nx && j >= 0 && j < ny && k >= 0 && k < nz) {
               const int flat =
@@ -643,6 +678,9 @@ void VolumePainterViskores::paint(
             }
 
             distance += sampleDistance;
+            posX = originX + dirX * distance;
+            posY = originY + dirY * distance;
+            posZ = originZ + dirZ * distance;
           }
 
           accumR = (accumR > 1.0f) ? 1.0f : accumR;
@@ -660,14 +698,9 @@ void VolumePainterViskores::paint(
             const float entryX = originX + dirX * tmin;
             const float entryY = originY + dirY * tmin;
             const float entryZ = originZ + dirZ * tmin;
-            const Vec4 entry(entryX, entryY, entryZ, 1.0f);
-            const Vec4 viewSpace = view * entry;
-            const Vec4 clipSpace = projection * viewSpace;
-            if (clipSpace[3] > 0.0f) {
-              depth = 0.5f * (clipSpace[2] / clipSpace[3]) + 0.5f;
-            } else {
-              depth = -std::numeric_limits<float>::infinity();
-            }
+            depth = (entryX - eye[0]) * basisForward[0] +
+                    (entryY - eye[1]) * basisForward[1] +
+                    (entryZ - eye[2]) * basisForward[2];
           }
           outDepth[index] = depth;
         });
