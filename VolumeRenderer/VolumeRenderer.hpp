@@ -1,9 +1,8 @@
-#ifndef VISKORES_VOLUME_RENDERER_HPP
-#define VISKORES_VOLUME_RENDERER_HPP
+#ifndef AMRVOLUMERENDERER_VOLUME_RENDERER_HPP
+#define AMRVOLUMERENDERER_VOLUME_RENDERER_HPP
 
-#include <amrVolumeRendererConfig.h>
+#include <AMReX_RealVect.H>
 #include <mpi.h>
-#include <viskores/Types.h>
 
 #include <Common/Compositor.hpp>
 #include <Common/ImageFull.hpp>
@@ -14,14 +13,10 @@
 #include <utility>
 #include <vector>
 
-#ifndef AMRVOLUMERENDERER_ENABLE_VISKORES
-#error "ViskoresVolumeRenderer requires AMRVOLUMERENDERER_ENABLE_VISKORES"
-#endif
-
-/// \brief Miniapp that renders distributed volumetric data using Viskores.
-class ViskoresVolumeRenderer {
+/// \brief Miniapp that renders distributed volumetric data using AMReX.
+class VolumeRenderer {
  public:
-  ViskoresVolumeRenderer();
+  VolumeRenderer();
 
   /// \brief Execute the miniapp entry point.
   int run(int argc, char** argv);
@@ -40,7 +35,7 @@ class ViskoresVolumeRenderer {
     bool useVisibilityGraph = true;
     bool writeVisibilityGraph = false;
     unsigned int cameraSeed = 91021u;
-    viskores::Vec3f_32 cameraUp = viskores::Vec3f_32(0.0f, 1.0f, 0.0f);
+    amrex::RealVect cameraUp = amrex::RealVect(0.0, 1.0, 0.0);
     bool useCustomUp = false;
     bool printCamera = false;
   };
@@ -59,7 +54,7 @@ class ViskoresVolumeRenderer {
 
   struct RunOptions {
     RenderParameters parameters;
-    std::string outputFilename = "viskores-volume.ppm";
+    std::string outputFilename = "volume-renderer.ppm";
     std::string plotfilePath;
     std::string variableName;
     int minLevel = 0;
@@ -164,4 +159,4 @@ class ViskoresVolumeRenderer {
   int numProcs;
 };
 
-#endif  // VISKORES_VOLUME_RENDERER_HPP
+#endif  // AMRVOLUMERENDERER_VOLUME_RENDERER_HPP

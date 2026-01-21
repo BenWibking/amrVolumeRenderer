@@ -11,7 +11,7 @@ import amrVolumeRenderer
 
 
 # Hard-coded rendering configuration.
-PLOTFILE_GLOB = "../quokka-turb-driving/tests/mach_10_v2/plt*"
+PLOTFILE_GLOB = "../quokka/tests/plt*"
 VARIABLE = "gasDensity"
 IMAGE_WIDTH = 512
 IMAGE_HEIGHT = 512

@@ -4,12 +4,10 @@
 
 #include <Common/VisibilityOrdering.hpp>
 
-#if defined(AMRVOLUMERENDERER_ENABLE_VISKORES)
+#include <Common/CameraUtils.hpp>
 
-#include <viskores/Math.h>
-#include <viskores/Matrix.h>
-#include <viskores/VectorAnalysis.h>
-#include <viskores/rendering/MatrixHelpers.h>
+#include <AMReX_RealVect.H>
+#include <AMReX_SmallMatrix.H>
 
 #include <algorithm>
 #include <array>
@@ -27,19 +25,21 @@
 
 namespace {
 
-using Vec3 = viskores::Vec3f_32;
-using Vec4 = viskores::Vec4f_32;
-using Matrix4x4 = viskores::Matrix<viskores::Float32, 4, 4>;
+using Vec3 = amrex::RealVect;
+using Vec4 = amrex::SmallMatrix<float, 4, 1>;
+using Matrix4x4 = amrex::SmallMatrix<float, 4, 4>;
+using amrVolumeRenderer::camera::makeViewMatrix;
+using amrVolumeRenderer::camera::safeNormalize;
 
 Matrix4x4 makePerspectiveMatrix(float fovYDegrees,
                                 float aspect,
                                 float nearPlane,
                                 float farPlane) {
-  Matrix4x4 matrix;
-  viskores::MatrixIdentity(matrix);
+  Matrix4x4 matrix = Matrix4x4::Identity();
 
+  constexpr float kPi = 3.14159265358979323846f;
   const float fovTangent =
-      viskores::Tan(fovYDegrees * viskores::Pi_180f() * 0.5f);
+      std::tan(fovYDegrees * kPi / 180.0f * 0.5f);
   const float size = nearPlane * fovTangent;
   const float left = -size * aspect;
   const float right = size * aspect;
@@ -71,9 +71,7 @@ MPI_Group BuildVisibilityOrderedGroup(
     const std::vector<amrVolumeRenderer::volume::AmrBox>& localBoxes,
     MPI_Comm communicator) {
   const Matrix4x4 modelview =
-      viskores::rendering::MatrixHelpers::ViewMatrix(camera.eye,
-                                                     camera.lookAt,
-                                                     camera.up);
+      makeViewMatrix(camera.eye, camera.lookAt, camera.up);
   const Matrix4x4 projection = makePerspectiveMatrix(camera.fovYDegrees,
                                                      aspect,
                                                      camera.nearPlane,
@@ -171,14 +169,12 @@ MPI_Group BuildVisibilityOrderedGroup(
         const Vec3 corner((cornerIndex & 1) ? maxCorner[0] : minCorner[0],
                           (cornerIndex & 2) ? maxCorner[1] : minCorner[1],
                           (cornerIndex & 4) ? maxCorner[2] : minCorner[2]);
-        const Vec4 homogeneousCorner(corner[0],
-                                     corner[1],
-                                     corner[2],
-                                     1.0f);
-        const Vec4 viewSpace =
-            viskores::MatrixMultiply(modelview, homogeneousCorner);
-        const Vec4 clipSpace =
-            viskores::MatrixMultiply(projection, viewSpace);
+        const Vec4 homogeneousCorner(static_cast<float>(corner[0]),
+                                      static_cast<float>(corner[1]),
+                                      static_cast<float>(corner[2]),
+                                      1.0f);
+        const Vec4 viewSpace = modelview * homogeneousCorner;
+        const Vec4 clipSpace = projection * viewSpace;
         if (clipSpace[3] != 0.0f) {
           const float normalizedDepth = clipSpace[2] / clipSpace[3];
           minDepth = std::min(minDepth, normalizedDepth);
@@ -210,13 +206,7 @@ MPI_Group BuildVisibilityOrderedGroup(
       globalBoxes[static_cast<std::size_t>(boxIndex)] = info;
     }
 
-    Vec3 viewDir = camera.lookAt - camera.eye;
-    const float viewDirMagnitude = viskores::Magnitude(viewDir);
-    if (viewDirMagnitude > 0.0f) {
-      viewDir = viewDir * (1.0f / viewDirMagnitude);
-    } else {
-      viewDir = Vec3(0.0f, 0.0f, -1.0f);
-    }
+    Vec3 viewDir = safeNormalize(camera.lookAt - camera.eye);
 
     auto nearlyEqual = [](float a, float b) {
       const float scale = std::max({1.0f, std::fabs(a), std::fabs(b)});
@@ -640,5 +630,3 @@ MPI_Group BuildVisibilityOrderedGroup(
   MPI_Group_incl(baseGroup, numProcs, rankOrder.data(), &orderedGroup);
   return orderedGroup;
 }
-
-#endif  // AMRVOLUMERENDERER_ENABLE_VISKORES

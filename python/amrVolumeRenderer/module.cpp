@@ -1,13 +1,13 @@
 #include <AMReX.H>
+#include <AMReX_RealVect.H>
 #include <mpi.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/array.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
-#include <viskores/VectorAnalysis.h>
 
-#include <ViskoresVolumeRenderer/ViskoresVolumeRenderer.hpp>
+#include <VolumeRenderer/VolumeRenderer.hpp>
 #include <array>
 #include <cmath>
 #include <optional>
@@ -152,7 +152,7 @@ int render_volume(const std::string& plotfilePath,
                       std::nullopt) {
   RuntimeScope runtime;
 
-  ViskoresVolumeRenderer::RunOptions options;
+  VolumeRenderer::RunOptions options;
   options.plotfilePath = plotfilePath;
   options.parameters.width = width;
   options.parameters.height = height;
@@ -174,8 +174,8 @@ int render_volume(const std::string& plotfilePath,
 
   if (upVector) {
     const auto& vector = *upVector;
-    viskores::Vec3f_32 up(vector[0], vector[1], vector[2]);
-    const float length = viskores::Magnitude(up);
+    amrex::RealVect up(vector[0], vector[1], vector[2]);
+    const float length = static_cast<float>(up.vectorLength());
     if (!(length > 0.0f) || !std::isfinite(length)) {
       throw std::invalid_argument(
           "up_vector must contain finite, non-zero components");
@@ -210,15 +210,15 @@ int render_volume(const std::string& plotfilePath,
     }
 
     const auto toVec3 = [](const std::array<float, 3>& values) {
-      return viskores::Vec3f_32(values[0], values[1], values[2]);
+      return amrex::RealVect(values[0], values[1], values[2]);
     };
 
-    viskores::Vec3f_32 eye = toVec3(*cameraEye);
-    viskores::Vec3f_32 lookAt = toVec3(*cameraLookAt);
+    amrex::RealVect eye = toVec3(*cameraEye);
+    amrex::RealVect lookAt = toVec3(*cameraLookAt);
     const std::array<float, 3> upArray =
         cameraUp.value_or(std::array<float, 3>{0.0f, 1.0f, 0.0f});
-    viskores::Vec3f_32 up = toVec3(upArray);
-    const float upLength = viskores::Magnitude(up);
+    amrex::RealVect up = toVec3(upArray);
+    const float upLength = static_cast<float>(up.vectorLength());
     if (!(upLength > 0.0f) || !std::isfinite(upLength)) {
       throw std::invalid_argument(
           "camera_up must contain finite, non-zero components");
@@ -228,15 +228,15 @@ int render_volume(const std::string& plotfilePath,
     const float fovY = cameraFovYDegrees.value_or(45.0f);
     const float nearPlane = cameraNearPlane.value_or(0.1f);
     const float farPlane = cameraFarPlane.value_or(1000.0f);
-    options.camera = ViskoresVolumeRenderer::CameraParameters{
+    options.camera = VolumeRenderer::CameraParameters{
         eye, lookAt, up, fovY, nearPlane, farPlane};
   }
 
   if (colorMap) {
-    ViskoresVolumeRenderer::ColorMap controlPoints;
+    VolumeRenderer::ColorMap controlPoints;
     controlPoints.reserve(colorMap->size());
     for (const auto& entry : *colorMap) {
-      ViskoresVolumeRenderer::ColorMapControlPoint point;
+      VolumeRenderer::ColorMapControlPoint point;
       point.value = entry[0];
       point.red = entry[1];
       point.green = entry[2];
@@ -247,7 +247,7 @@ int render_volume(const std::string& plotfilePath,
     options.colorMap = std::move(controlPoints);
   }
 
-  ViskoresVolumeRenderer renderer;
+  VolumeRenderer renderer;
   int exitCode = 0;
   {
     nb::gil_scoped_release release;
@@ -255,7 +255,7 @@ int render_volume(const std::string& plotfilePath,
   }
 
   if (exitCode != 0) {
-    throw std::runtime_error("ViskoresVolumeRenderer returned exit code " +
+    throw std::runtime_error("VolumeRenderer returned exit code " +
                              std::to_string(exitCode));
   }
   return exitCode;
@@ -263,7 +263,7 @@ int render_volume(const std::string& plotfilePath,
 
 NB_MODULE(amrVolumeRenderer_ext, module) {
   module.doc() =
-      "Python bindings for the amrVolumeRenderer Viskores volume renderer.";
+      "Python bindings for the amrVolumeRenderer AMReX volume renderer.";
 
   module.def(
       "initialize_runtime",
@@ -297,7 +297,7 @@ NB_MODULE(amrVolumeRenderer_ext, module) {
       nb::arg("camera_far") = nb::none(),
       nb::arg("color_map") = nb::none(),
       "Render a plotfile using the DirectSend compositor.\n\n"
-      "Parameters mirror the command line flags of the ViskoresVolumeRenderer "
+      "Parameters mirror the command line flags of the volume_renderer "
       "executable. Additional keyword arguments allow specifying "
       "scalar_range=(min, max), an explicit camera via camera_* options, and "
       "color_map=[(value, r, g, b, a), ...] with physical scalar values.");
@@ -316,8 +316,8 @@ NB_MODULE(amrVolumeRenderer_ext, module) {
           variable = nb::cast<std::string>(variableName);
         }
 
-        ViskoresVolumeRenderer renderer;
-        ViskoresVolumeRenderer::ScalarHistogram histogram =
+        VolumeRenderer renderer;
+        VolumeRenderer::ScalarHistogram histogram =
             renderer.computeScalarHistogram(plotfilePath,
                                             variable.value_or(std::string()),
                                             minLevel,

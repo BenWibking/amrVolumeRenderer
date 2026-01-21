@@ -1,14 +1,12 @@
-#include "ViskoresVolumeRenderer.hpp"
+#include "VolumeRenderer.hpp"
 
 #include <AMReX.H>
 #include <AMReX_MultiFabUtil.H>
 #include <AMReX_PlotFileUtil.H>
 #include <AMReX_Utility.H>
-#include <viskores/Math.h>
-#include <viskores/Matrix.h>
-#include <viskores/Types.h>
-#include <viskores/VectorAnalysis.h>
-#include <viskores/rendering/MatrixHelpers.h>
+#include <AMReX_Math.H>
+#include <AMReX_RealVect.H>
+#include <AMReX_SmallMatrix.H>
 
 #include <Common/Color.hpp>
 #include <Common/ImageRGBAFloatColorDepthSort.hpp>
@@ -17,7 +15,7 @@
 #include <Common/SavePNG.hpp>
 #include <Common/SavePPM.hpp>
 #include <Common/VisibilityOrdering.hpp>
-#include <Common/VolumePainterViskores.hpp>
+#include <Common/VolumePainter.hpp>
 #include <Common/VolumeTypes.hpp>
 #include <DirectSend/Base/DirectSendBase.hpp>
 #include <algorithm>
@@ -42,12 +40,60 @@
 
 namespace {
 
-using Vec3 = viskores::Vec3f_32;
-using Matrix4x4 = viskores::Matrix<viskores::Float32, 4, 4>;
+using Vec3 = amrex::RealVect;
+using Vec4 = amrex::SmallMatrix<float, 4, 1>;
+using Matrix4x4 = amrex::SmallMatrix<float, 4, 4>;
 using amrVolumeRenderer::volume::AmrBox;
 using amrVolumeRenderer::volume::CameraParameters;
 using amrVolumeRenderer::volume::VolumeBounds;
-using viskores::Id;
+
+constexpr float kPi = 3.14159265358979323846f;
+constexpr float kTwoPi = 2.0f * kPi;
+
+Vec3 safeNormalize(const Vec3& input) {
+  const amrex::Real length = input.vectorLength();
+  if (length > 0.0 && std::isfinite(static_cast<double>(length))) {
+    return input / length;
+  }
+  return Vec3(0.0, 0.0, -1.0);
+}
+
+Matrix4x4 makeViewMatrix(const Vec3& eye,
+                         const Vec3& lookAt,
+                         const Vec3& up) {
+  const Vec3 forward = safeNormalize(lookAt - eye);
+  Vec3 right = forward.crossProduct(up);
+  const amrex::Real rightLength = right.vectorLength();
+  if (rightLength > 0.0 && std::isfinite(static_cast<double>(rightLength))) {
+    right /= rightLength;
+  } else {
+    right = Vec3(1.0, 0.0, 0.0);
+  }
+  const Vec3 upOrtho = right.crossProduct(forward);
+
+  Matrix4x4 view = Matrix4x4::Identity();
+  view(0, 0) = static_cast<float>(right[0]);
+  view(1, 0) = static_cast<float>(right[1]);
+  view(2, 0) = static_cast<float>(right[2]);
+  view(3, 0) = static_cast<float>(-right.dotProduct(eye));
+
+  view(0, 1) = static_cast<float>(upOrtho[0]);
+  view(1, 1) = static_cast<float>(upOrtho[1]);
+  view(2, 1) = static_cast<float>(upOrtho[2]);
+  view(3, 1) = static_cast<float>(-upOrtho.dotProduct(eye));
+
+  view(0, 2) = static_cast<float>(-forward[0]);
+  view(1, 2) = static_cast<float>(-forward[1]);
+  view(2, 2) = static_cast<float>(-forward[2]);
+  view(3, 2) = static_cast<float>(forward.dotProduct(eye));
+
+  view(0, 3) = 0.0f;
+  view(1, 3) = 0.0f;
+  view(2, 3) = 0.0f;
+  view(3, 3) = 1.0f;
+
+  return view;
+}
 
 std::string lowercaseExtension(const std::string& filename) {
   const std::size_t dot = filename.find_last_of('.');
@@ -65,17 +111,17 @@ std::string lowercaseExtension(const std::string& filename) {
 
 Vec3 componentMin(const Vec3& a, const Vec3& b) {
   Vec3 result;
-  result[0] = viskores::Min(a[0], b[0]);
-  result[1] = viskores::Min(a[1], b[1]);
-  result[2] = viskores::Min(a[2], b[2]);
+  result[0] = std::min(a[0], b[0]);
+  result[1] = std::min(a[1], b[1]);
+  result[2] = std::min(a[2], b[2]);
   return result;
 }
 
 Vec3 componentMax(const Vec3& a, const Vec3& b) {
   Vec3 result;
-  result[0] = viskores::Max(a[0], b[0]);
-  result[1] = viskores::Max(a[1], b[1]);
-  result[2] = viskores::Max(a[2], b[2]);
+  result[0] = std::max(a[0], b[0]);
+  result[1] = std::max(a[1], b[1]);
+  result[2] = std::max(a[2], b[2]);
   return result;
 }
 
@@ -83,11 +129,10 @@ Matrix4x4 makePerspectiveMatrix(float fovYDegrees,
                                 float aspect,
                                 float nearPlane,
                                 float farPlane) {
-  Matrix4x4 matrix;
-  viskores::MatrixIdentity(matrix);
+  Matrix4x4 matrix = Matrix4x4::Identity();
 
   const float fovTangent =
-      viskores::Tan(fovYDegrees * viskores::Pi_180f() * 0.5f);
+      std::tan(fovYDegrees * kPi / 180.0f * 0.5f);
   const float size = nearPlane * fovTangent;
   const float left = -size * aspect;
   const float right = size * aspect;
@@ -126,18 +171,17 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
   const float aspect =
       static_cast<float>(width) / static_cast<float>(std::max(height, 1));
 
-  const Matrix4x4 view = viskores::rendering::MatrixHelpers::ViewMatrix(
-      camera.eye, camera.lookAt, camera.up);
-  const Matrix4x4 projection = makePerspectiveMatrix(
-      camera.fovYDegrees, aspect, camera.nearPlane, camera.farPlane);
-
-  Vec3 forward = camera.lookAt - camera.eye;
-  const float forwardLength = viskores::Magnitude(forward);
-  if (forwardLength > 0.0f) {
-    forward = forward / forwardLength;
+  Vec3 forward = safeNormalize(camera.lookAt - camera.eye);
+  Vec3 right = forward.crossProduct(camera.up);
+  const amrex::Real rightLength = right.vectorLength();
+  if (rightLength > 0.0 && std::isfinite(static_cast<double>(rightLength))) {
+    right /= rightLength;
   } else {
-    forward = Vec3(0.0f, 0.0f, -1.0f);
+    right = Vec3(1.0, 0.0, 0.0);
   }
+  const Vec3 upOrtho = right.crossProduct(forward);
+  const float tanHalfFov =
+      std::tan(camera.fovYDegrees * 0.5f * kPi / 180.0f);
 
   struct ScreenCorner {
     Vec3 world = Vec3(0.0f);
@@ -148,6 +192,7 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
   };
 
   std::array<ScreenCorner, 8> projectedCorners;
+  int validCorners = 0;
 
   const float widthScale = (width > 1) ? static_cast<float>(width - 1) : 0.0f;
   const float heightScale =
@@ -158,39 +203,31 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
                 (index & 2) ? bounds.maxCorner[1] : bounds.minCorner[1],
                 (index & 4) ? bounds.maxCorner[2] : bounds.minCorner[2]);
 
-    const viskores::Vec4f_32 homogeneousCorner(
-        corner[0], corner[1], corner[2], 1.0f);
-    const viskores::Vec4f_32 viewSpace =
-        viskores::MatrixMultiply(view, homogeneousCorner);
-    const viskores::Vec4f_32 clipSpace =
-        viskores::MatrixMultiply(projection, viewSpace);
-    const float w = clipSpace[3];
     ScreenCorner projected;
     projected.world = corner;
 
-    if (w <= 0.0f || !std::isfinite(w)) {
+    const Vec3 relative = corner - camera.eye;
+    const float depth = static_cast<float>(relative.dotProduct(forward));
+    if (!(depth > 0.0f) || !std::isfinite(depth)) {
       projectedCorners[static_cast<std::size_t>(index)] = projected;
       continue;
     }
 
-    const float invW = 1.0f / w;
-    const float ndcX = clipSpace[0] * invW;
-    const float ndcY = clipSpace[1] * invW;
-    const float ndcZ = clipSpace[2] * invW;
-
-    if (!std::isfinite(ndcX) || !std::isfinite(ndcY) || !std::isfinite(ndcZ)) {
+    const float xCam = static_cast<float>(relative.dotProduct(right));
+    const float yCam = static_cast<float>(relative.dotProduct(upOrtho));
+    const float ndcX = xCam / (depth * tanHalfFov * aspect);
+    const float ndcY = yCam / (depth * tanHalfFov);
+    if (!std::isfinite(ndcX) || !std::isfinite(ndcY)) {
       projectedCorners[static_cast<std::size_t>(index)] = projected;
       continue;
     }
 
     projected.x = (ndcX * 0.5f + 0.5f) * widthScale;
     projected.y = (ndcY * 0.5f + 0.5f) * heightScale;
-    projected.depth = viskores::Dot(corner - camera.eye, forward);
-    if (!std::isfinite(projected.depth)) {
-      projected.depth = camera.farPlane;
-    }
+    projected.depth = depth;
     projected.valid = true;
     projectedCorners[static_cast<std::size_t>(index)] = projected;
+    ++validCorners;
   }
 
   constexpr std::array<std::pair<int, int>, 12> edges = {
@@ -209,8 +246,9 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
 
   const Color baseLineColor(1.0f, 1.0f, 1.0f, 1.0f);
 
+  const float overlayDepth = std::numeric_limits<float>::lowest();
   const auto blendSample =
-      [&](int pixelX, int pixelY, float coverage, float depth) {
+      [&](int pixelX, int pixelY, float coverage, float /*depth*/) {
         if (pixelX < 0 || pixelX >= width || pixelY < 0 || pixelY >= height) {
           return;
         }
@@ -232,7 +270,7 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
         buffer[1] = srcGreen + buffer[1] * (1.0f - srcAlpha);
         buffer[2] = srcBlue + buffer[2] * (1.0f - srcAlpha);
         buffer[3] = srcAlpha + buffer[3] * (1.0f - srcAlpha);
-        buffer[4] = std::min(buffer[4], depth);
+        buffer[4] = overlayDepth;
       };
 
   const auto lerp = [](float v0, float v1, float t) {
@@ -242,6 +280,8 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
   const float pixelRadius =
       0.5f * static_cast<float>(std::max(sqrtAntialiasing, 1));
   const float influenceRadius = pixelRadius + 0.5f;
+  // Scale factor to adjust line thickness for better visual appearance.
+  constexpr float coverageScale = 0.6f;
 
   for (const auto& edge : edges) {
     const ScreenCorner& start =
@@ -293,14 +333,15 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
         const float distY = sampleY - closestY;
         const float distance = std::sqrt(distX * distX + distY * distY);
 
-        const float coverage =
-            std::clamp(pixelRadius + 0.5f - distance, 0.0f, 1.0f);
+        const float coverage = std::clamp(
+            (pixelRadius + 0.5f - distance) * coverageScale, 0.0f, 1.0f);
         if (coverage <= 0.0f) {
           continue;
         }
 
         Vec3 worldPoint = start.world + (end.world - start.world) * t;
-        float depth = viskores::Dot(worldPoint - camera.eye, forward);
+        float depth = static_cast<float>(
+            (worldPoint - camera.eye).dotProduct(forward));
         if (!std::isfinite(depth)) {
           depth = lerp(start.depth, end.depth, t);
         }
@@ -312,13 +353,14 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
       }
     }
   }
+
 }
 
-using ParsedOptions = ViskoresVolumeRenderer::RunOptions;
+using ParsedOptions = VolumeRenderer::RunOptions;
 
 void printUsage() {
   std::cout
-      << "Usage: ViskoresVolumeRenderer [options] plotfile\n"
+      << "Usage: volume_renderer [options] plotfile\n"
       << "  --width W        Image width (default: 512)\n"
       << "  --height H       Image height (default: 512)\n"
       << "  --antialiasing A Supersampling factor (positive integer square, "
@@ -341,7 +383,7 @@ void printUsage() {
       << "  --log-scale      Apply natural log scaling before normalizing the "
          "input field\n"
       << "  --output FILE    Output filename (supports .ppm or .png; default: "
-      << "viskores-volume.ppm)\n"
+      << "volume-renderer.ppm)\n"
       << "  -h, --help       Show this help message\n";
 }
 
@@ -414,7 +456,7 @@ ParsedOptions parseOptions(int argc, char** argv, int rank) {
       const float y = std::stof(argv[++i]);
       const float z = std::stof(argv[++i]);
       Vec3 upVector(x, y, z);
-      const float length = viskores::Magnitude(upVector);
+      const float length = static_cast<float>(upVector.vectorLength());
       if (!(length > 0.0f) || !std::isfinite(length)) {
         throw std::runtime_error("--up-vector must be non-zero and finite");
       }
@@ -519,25 +561,27 @@ struct MpiGroupGuard {
 };
 
 float computeBoxDepthHint(const AmrBox& box, const CameraParameters& camera) {
-  const Vec3 viewDir = viskores::Normal(camera.lookAt - camera.eye);
+  const Vec3 viewDir = safeNormalize(camera.lookAt - camera.eye);
   float minDepth = std::numeric_limits<float>::infinity();
   for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex) {
     const Vec3 corner((cornerIndex & 1) ? box.maxCorner[0] : box.minCorner[0],
                       (cornerIndex & 2) ? box.maxCorner[1] : box.minCorner[1],
                       (cornerIndex & 4) ? box.maxCorner[2] : box.minCorner[2]);
-    minDepth = std::min(minDepth, viskores::Dot(corner - camera.eye, viewDir));
+    minDepth = std::min(minDepth,
+                        static_cast<float>(
+                            (corner - camera.eye).dotProduct(viewDir)));
   }
   return minDepth;
 }
 
 }  // namespace
 
-ViskoresVolumeRenderer::ViskoresVolumeRenderer() : rank(0), numProcs(1) {
+VolumeRenderer::VolumeRenderer() : rank(0), numProcs(1) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
 }
 
-void ViskoresVolumeRenderer::validateRenderParameters(
+void VolumeRenderer::validateRenderParameters(
     const RenderParameters& parameters) const {
   if (parameters.width <= 0 || parameters.height <= 0) {
     throw std::invalid_argument("image dimensions must be positive");
@@ -556,14 +600,14 @@ void ViskoresVolumeRenderer::validateRenderParameters(
   }
 }
 
-void ViskoresVolumeRenderer::initialize() const {
+void VolumeRenderer::initialize() const {
   if (rank == 0) {
-    std::cout << "ViskoresVolumeRenderer: Using Viskores volume mapper on "
+    std::cout << "volume_renderer: Using AMReX volume mapper on "
               << numProcs << " ranks" << std::endl;
   }
 }
 
-auto ViskoresVolumeRenderer::loadPlotFileGeometry(
+auto VolumeRenderer::loadPlotFileGeometry(
     const std::string& plotfilePath,
     const std::string& variableName,
     int requestedMinLevel,
@@ -691,8 +735,7 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
       }
 
       AmrBox amrBox;
-      amrBox.cellDimensions = viskores::Id3(
-          static_cast<Id>(nx), static_cast<Id>(ny), static_cast<Id>(nz));
+      amrBox.cellDimensions = amrex::IntVect(nx, ny, nz);
 
       Vec3 minCorner(0.0f);
       Vec3 maxCorner(0.0f);
@@ -761,9 +804,13 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
   }
 
   std::array<float, 3> localMinOriginalArray = {
-      localMinOriginal[0], localMinOriginal[1], localMinOriginal[2]};
+      static_cast<float>(localMinOriginal[0]),
+      static_cast<float>(localMinOriginal[1]),
+      static_cast<float>(localMinOriginal[2])};
   std::array<float, 3> localMaxOriginalArray = {
-      localMaxOriginal[0], localMaxOriginal[1], localMaxOriginal[2]};
+      static_cast<float>(localMaxOriginal[0]),
+      static_cast<float>(localMaxOriginal[1]),
+      static_cast<float>(localMaxOriginal[2])};
   std::array<float, 3> globalMinOriginalArray = {
       std::numeric_limits<float>::max(),
       std::numeric_limits<float>::max(),
@@ -839,8 +886,12 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
     localMax = Vec3(-std::numeric_limits<float>::max());
   }
 
-  std::array<float, 3> localMinArray = {localMin[0], localMin[1], localMin[2]};
-  std::array<float, 3> localMaxArray = {localMax[0], localMax[1], localMax[2]};
+  std::array<float, 3> localMinArray = {static_cast<float>(localMin[0]),
+                                        static_cast<float>(localMin[1]),
+                                        static_cast<float>(localMin[2])};
+  std::array<float, 3> localMaxArray = {static_cast<float>(localMax[0]),
+                                        static_cast<float>(localMax[1]),
+                                        static_cast<float>(localMax[2])};
   std::array<float, 3> globalMinArray = {std::numeric_limits<float>::max(),
                                          std::numeric_limits<float>::max(),
                                          std::numeric_limits<float>::max()};
@@ -1042,8 +1093,8 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
   return scene;
 }
 
-ViskoresVolumeRenderer::VolumeBounds
-ViskoresVolumeRenderer::computeGlobalBounds(
+VolumeRenderer::VolumeBounds
+VolumeRenderer::computeGlobalBounds(
     const std::vector<AmrBox>& boxes,
     bool hasExplicitBounds,
     const VolumeBounds& explicitBounds) const {
@@ -1064,8 +1115,12 @@ ViskoresVolumeRenderer::computeGlobalBounds(
     localMax = Vec3(-std::numeric_limits<float>::max());
   }
 
-  std::array<float, 3> localMinArray = {localMin[0], localMin[1], localMin[2]};
-  std::array<float, 3> localMaxArray = {localMax[0], localMax[1], localMax[2]};
+  std::array<float, 3> localMinArray = {static_cast<float>(localMin[0]),
+                                        static_cast<float>(localMin[1]),
+                                        static_cast<float>(localMin[2])};
+  std::array<float, 3> localMaxArray = {static_cast<float>(localMax[0]),
+                                        static_cast<float>(localMax[1]),
+                                        static_cast<float>(localMax[2])};
   std::array<float, 3> globalMinArray = {std::numeric_limits<float>::max(),
                                          std::numeric_limits<float>::max(),
                                          std::numeric_limits<float>::max()};
@@ -1104,7 +1159,7 @@ ViskoresVolumeRenderer::computeGlobalBounds(
 
   const Vec3 extent = bounds.maxCorner - bounds.minCorner;
   const float maxExtent =
-      viskores::Max(extent[0], viskores::Max(extent[1], extent[2]));
+      std::max(extent[0], std::max(extent[1], extent[2]));
   const float padding = (maxExtent > 0.0f) ? maxExtent * 0.05f : 0.5f;
   const Vec3 paddingVec(padding);
 
@@ -1113,7 +1168,7 @@ ViskoresVolumeRenderer::computeGlobalBounds(
   return bounds;
 }
 
-ViskoresVolumeRenderer::VolumeBounds ViskoresVolumeRenderer::computeTightBounds(
+VolumeRenderer::VolumeBounds VolumeRenderer::computeTightBounds(
     const std::vector<AmrBox>& boxes, const VolumeBounds& fallback) const {
   Vec3 localMin(std::numeric_limits<float>::max());
   Vec3 localMax(-std::numeric_limits<float>::max());
@@ -1130,8 +1185,12 @@ ViskoresVolumeRenderer::VolumeBounds ViskoresVolumeRenderer::computeTightBounds(
     localMax = Vec3(-std::numeric_limits<float>::max());
   }
 
-  std::array<float, 3> localMinArray = {localMin[0], localMin[1], localMin[2]};
-  std::array<float, 3> localMaxArray = {localMax[0], localMax[1], localMax[2]};
+  std::array<float, 3> localMinArray = {static_cast<float>(localMin[0]),
+                                        static_cast<float>(localMin[1]),
+                                        static_cast<float>(localMin[2])};
+  std::array<float, 3> localMaxArray = {static_cast<float>(localMax[0]),
+                                        static_cast<float>(localMax[1]),
+                                        static_cast<float>(localMax[2])};
   std::array<float, 3> globalMinArray = {std::numeric_limits<float>::max(),
                                          std::numeric_limits<float>::max(),
                                          std::numeric_limits<float>::max()};
@@ -1169,7 +1228,7 @@ ViskoresVolumeRenderer::VolumeBounds ViskoresVolumeRenderer::computeTightBounds(
   return tight;
 }
 
-std::pair<float, float> ViskoresVolumeRenderer::computeGlobalScalarRange(
+std::pair<float, float> VolumeRenderer::computeGlobalScalarRange(
     const std::vector<AmrBox>& boxes) const {
   float localMin = std::numeric_limits<float>::infinity();
   float localMax = -std::numeric_limits<float>::infinity();
@@ -1200,7 +1259,7 @@ std::pair<float, float> ViskoresVolumeRenderer::computeGlobalScalarRange(
   return {globalMin, globalMax};
 }
 
-auto ViskoresVolumeRenderer::computeScalarHistogram(
+auto VolumeRenderer::computeScalarHistogram(
     const std::string& plotfilePath,
     const std::string& variableName,
     int requestedMinLevel,
@@ -1292,7 +1351,7 @@ auto ViskoresVolumeRenderer::computeScalarHistogram(
   return histogram;
 }
 
-void ViskoresVolumeRenderer::paint(const AmrBox& box,
+void VolumeRenderer::paint(const AmrBox& box,
                                    const VolumeBounds& bounds,
                                    const std::pair<float, float>& scalarRange,
                                    float boxTransparency,
@@ -1301,7 +1360,7 @@ void ViskoresVolumeRenderer::paint(const AmrBox& box,
                                    ImageFull& image,
                                    const CameraParameters& camera,
                                    const ColorMap* colorMap) {
-  static VolumePainterViskores painter;
+  static VolumePainter painter;
   painter.paint(box,
                 bounds,
                 scalarRange,
@@ -1315,12 +1374,12 @@ void ViskoresVolumeRenderer::paint(const AmrBox& box,
                 colorMap);
 }
 
-Compositor* ViskoresVolumeRenderer::getCompositor() {
+Compositor* VolumeRenderer::getCompositor() {
   static DirectSendBase compositor;
   return &compositor;
 }
 
-MPI_Group ViskoresVolumeRenderer::buildVisibilityOrderedGroup(
+MPI_Group VolumeRenderer::buildVisibilityOrderedGroup(
     const CameraParameters& camera,
     float aspect,
     MPI_Group baseGroup,
@@ -1338,7 +1397,7 @@ MPI_Group ViskoresVolumeRenderer::buildVisibilityOrderedGroup(
                                      MPI_COMM_WORLD);
 }
 
-int ViskoresVolumeRenderer::renderScene(
+int VolumeRenderer::renderScene(
     const std::string& outputFilenameBase,
     const RenderParameters& parameters,
     const SceneGeometry& geometry,
@@ -1367,13 +1426,13 @@ int ViskoresVolumeRenderer::renderScene(
 
   const Vec3 center = 0.5f * (bounds.minCorner + bounds.maxCorner);
   const Vec3 halfExtent = 0.5f * (bounds.maxCorner - bounds.minCorner);
-  float boundingRadius = viskores::Magnitude(halfExtent);
+  float boundingRadius = static_cast<float>(halfExtent.vectorLength());
   if (boundingRadius <= 0.0f) {
     boundingRadius = 1.0f;
   }
 
-  const float fovY = viskores::Pif() * 0.25f;
-  const float maxAltitude = viskores::Pif() * 0.25f;
+  const float fovY = kPi * 0.25f;
+  const float maxAltitude = kPi * 0.25f;
 
   const float halfFov = fovY * 0.5f;
   const float minDistance =
@@ -1384,8 +1443,7 @@ int ViskoresVolumeRenderer::renderScene(
   const float cameraDistance = minDistance + safetyMargin;
 
   std::mt19937 cameraRng(parameters.cameraSeed);
-  std::uniform_real_distribution<float> azimuthDistribution(
-      0.0f, viskores::TwoPif());
+  std::uniform_real_distribution<float> azimuthDistribution(0.0f, kTwoPi);
   std::uniform_real_distribution<float> altitudeDistribution(-maxAltitude,
                                                              maxAltitude);
   const float azimuth = azimuthDistribution(cameraRng);
@@ -1399,21 +1457,21 @@ int ViskoresVolumeRenderer::renderScene(
 
   Vec3 upVector =
       parameters.useCustomUp ? parameters.cameraUp : Vec3(0.0f, 1.0f, 0.0f);
-  const Vec3 viewDir = viskores::Normal(center - eye);
-  if (viskores::Magnitude(viskores::Cross(viewDir, upVector)) <= 1e-4f) {
+  const Vec3 viewDir = safeNormalize(center - eye);
+  if (viewDir.crossProduct(upVector).vectorLength() <= 1e-4f) {
     upVector = Vec3(0.0f, 0.0f, 1.0f);
-    if (viskores::Magnitude(viskores::Cross(viewDir, upVector)) <= 1e-4f) {
+    if (viewDir.crossProduct(upVector).vectorLength() <= 1e-4f) {
       upVector = Vec3(1.0f, 0.0f, 0.0f);
     }
   }
-  upVector = viskores::Normal(upVector);
+  upVector = safeNormalize(upVector);
 
   const float nearPlane = 0.1f;
   const float farPlane = cameraDistance * 4.0f;
   CameraParameters camera{eye,
                           center,
                           upVector,
-                          fovY * 180.0f / viskores::Pif(),
+                          fovY * 180.0f / kPi,
                           nearPlane,
                           farPlane};
 
@@ -1441,7 +1499,7 @@ int ViskoresVolumeRenderer::renderScene(
                            colorMapPtr);
 }
 
-int ViskoresVolumeRenderer::renderScene(
+int VolumeRenderer::renderScene(
     const std::string& outputFilenameBase,
     const RenderParameters& parameters,
     const SceneGeometry& geometry,
@@ -1493,7 +1551,7 @@ int ViskoresVolumeRenderer::renderScene(
                            colorMapPtr);
 }
 
-int ViskoresVolumeRenderer::renderSingleTrial(
+int VolumeRenderer::renderSingleTrial(
     const std::string& outputFilename,
     const RenderParameters& parameters,
     const SceneGeometry& geometry,
@@ -1529,8 +1587,8 @@ int ViskoresVolumeRenderer::renderSingleTrial(
 
   float localCoarsestMinSpacing = 0.0f;
   for (const AmrBox& box : geometry.localBoxes) {
-    const viskores::Vec3f_32 span = box.maxCorner - box.minCorner;
-    viskores::Vec3f_32 spacing(0.0f);
+    const Vec3 span = box.maxCorner - box.minCorner;
+    Vec3 spacing(0.0);
     if (box.cellDimensions[0] > 0) {
       spacing[0] = span[0] / static_cast<float>(box.cellDimensions[0]);
     }
@@ -1564,7 +1622,7 @@ int ViskoresVolumeRenderer::renderSingleTrial(
 
   if (!(globalCoarsestMinSpacing > 0.0f &&
         std::isfinite(globalCoarsestMinSpacing))) {
-    const viskores::Vec3f_32 fallbackSpan = bounds.maxCorner - bounds.minCorner;
+    const Vec3 fallbackSpan = bounds.maxCorner - bounds.minCorner;
     float fallbackMin = std::numeric_limits<float>::max();
     for (int component = 0; component < 3; ++component) {
       const float axisLength = fallbackSpan[component];
@@ -1612,18 +1670,6 @@ int ViskoresVolumeRenderer::renderSingleTrial(
   const double renderSeconds =
       std::chrono::duration<double>(renderEnd - renderStart).count();
   reportStageTime("per-box rendering", renderSeconds);
-
-  auto boundingBoxLayer =
-      std::make_unique<ImageRGBAFloatColorDepthSort>(renderWidth, renderHeight);
-  boundingBoxLayer->clear();
-  clearDepthHints(*boundingBoxLayer, std::numeric_limits<float>::infinity());
-  renderBoundingBoxLayer(
-      tightBounds, camera, sqrtAntialiasing, *boundingBoxLayer);
-  AmrBox boundsBox;
-  boundsBox.minCorner = tightBounds.minCorner;
-  boundsBox.maxCorner = tightBounds.maxCorner;
-  depthHints.push_back(computeBoxDepthHint(boundsBox, camera));
-  localLayers.push_back(std::move(boundingBoxLayer));
 
   auto prototype =
       std::make_unique<ImageRGBAFloatColorDepthSort>(renderWidth, renderHeight);
@@ -1711,6 +1757,11 @@ int ViskoresVolumeRenderer::renderSingleTrial(
         outputImage = std::move(gatheredImage);
       }
 
+      if (auto* asColorDepth =
+              dynamic_cast<ImageRGBAFloatColorDepthSort*>(outputImage.get())) {
+        renderBoundingBoxLayer(tightBounds, camera, 1, *asColorDepth);
+      }
+
       const std::string extension = lowercaseExtension(outputFilename);
       if (!extension.empty() && extension != ".ppm" && extension != ".png") {
         std::cerr << "Render: unrecognized image extension '" << extension
@@ -1736,7 +1787,7 @@ int ViskoresVolumeRenderer::renderSingleTrial(
   return 0;
 }
 
-int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
+int VolumeRenderer::run(const RunOptions& providedOptions) {
   RunOptions options = providedOptions;
 
   validateRenderParameters(options.parameters);
@@ -1759,7 +1810,8 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
   }
 
   if (options.parameters.useCustomUp) {
-    const float length = viskores::Magnitude(options.parameters.cameraUp);
+    const float length =
+        static_cast<float>(options.parameters.cameraUp.vectorLength());
     if (!(length > 0.0f) || !std::isfinite(length)) {
       throw std::invalid_argument(
           "custom up vector must be non-zero and finite");
@@ -1828,17 +1880,17 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
     }
 
     const Vec3 forward = lookAt - eye;
-    const float forwardLength = viskores::Magnitude(forward);
+    const float forwardLength = static_cast<float>(forward.vectorLength());
     if (!(forwardLength > 0.0f) || !std::isfinite(forwardLength)) {
       throw std::invalid_argument("camera eye and look-at must be distinct");
     }
 
-    const float upLength = viskores::Magnitude(up);
+    const float upLength = static_cast<float>(up.vectorLength());
     if (!(upLength > 0.0f) || !std::isfinite(upLength)) {
       throw std::invalid_argument("camera up vector must be non-zero");
     }
     const float crossMagnitude =
-        viskores::Magnitude(viskores::Cross(forward, up));
+        static_cast<float>(forward.crossProduct(up).vectorLength());
     if (!(crossMagnitude > 1e-6f)) {
       throw std::invalid_argument(
           "camera up vector must not be parallel to the view direction");
@@ -1975,7 +2027,7 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
 
   if (options.camera) {
     Vec3 normalizedUp(options.camera->up);
-    normalizedUp = viskores::Normal(normalizedUp);
+    normalizedUp = safeNormalize(normalizedUp);
     options.camera->up = normalizedUp;
     return renderScene(options.outputFilename,
                        options.parameters,
@@ -1990,7 +2042,7 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
                      *colorMapPtr);
 }
 
-int ViskoresVolumeRenderer::run(int argc, char** argv) {
+int VolumeRenderer::run(int argc, char** argv) {
   ParsedOptions options;
 
   try {

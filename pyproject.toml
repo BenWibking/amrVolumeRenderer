@@ -34,6 +34,7 @@ Homepage = "https://github.com/lanl/amrVolumeRenderer"
 [tool.scikit-build]
 minimum-version = "0.8"
 cmake.build-type = "Release"
+cmake.args = ["-DCMAKE_BUILD_TYPE=Release"]
 cmake.define = { AMRVOLUMERENDERER_ENABLE_TESTING = "OFF" }
 wheel.packages = ["python/amrVolumeRenderer"]
 sdist.include = [
@@ -42,7 +43,7 @@ sdist.include = [
   "Common",
   "DirectSend",
   "python",
-  "ViskoresVolumeRenderer",
+  "VolumeRenderer",
   "nanobind",
   "AMReX",
   "LICENSE.TXT",

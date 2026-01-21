@@ -30,6 +30,7 @@ set(srcs
 
 set(headers
   ${CMAKE_CURRENT_BINARY_DIR}/amrVolumeRendererConfig.h
+  CameraUtils.hpp
   Color.hpp
   Compositor.hpp
   Image.hpp
@@ -46,7 +47,7 @@ set(headers
   ImageSparse.hpp
   ImageSparseColorDepth.hpp
   ImageSparseColorOnly.hpp
-  VolumePainterViskores.hpp
+  VolumePainter.hpp
   VolumeTypes.hpp
   VisibilityOrdering.hpp
   SavePPM.hpp

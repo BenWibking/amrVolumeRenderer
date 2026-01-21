@@ -18,21 +18,6 @@ offline batch jobs and interactive exploration.
 
 ## Quick Start
 
-Viskores is built as a superbuild by default. The configure step will fetch and
-compile it via CMake `FetchContent` unless you opt out. To use a preinstalled
-Viskores instead, disable the superbuild and point CMake at the package:
-
-```sh
-cmake -S . -B build -DAMRVOLUMERENDERER_SUPERBUILD_VISKORES=OFF -DViskores_DIR=/path/to/viskores
-```
-
-With Spack, this typically looks like:
-
-```sh
-spack install viskores
-spack load viskores
-```
-
 1. Clone the repository:
 
    ```sh
@@ -50,13 +35,12 @@ spack load viskores
    ```
 
    Requirements: CMake 3.3+, a C++11 (or newer) compiler, libpng, and
-   an MPI implementation such as OpenMPI or MPICH. Viskores is built by the
-   superbuild unless you supply it via `Viskores_DIR`.
+   an MPI implementation such as OpenMPI or MPICH.
 
-3. Launch the ViskoresVolumeRenderer driver (replace `plt0010` with your AMReX plotfile):
+3. Launch the volume renderer driver (replace `plt0010` with your AMReX plotfile):
 
    ```sh
-   mpirun -np 4 build/bin/ViskoresVolumeRenderer --plotfile=plt0010 --width=512 --height=512
+   mpirun -np 4 build/bin/volume_renderer --plotfile=plt0010 --width=512 --height=512
    ```
 
    Pass `--help` to list all rendering and AMR selection options.
@@ -91,9 +75,9 @@ render(
 )
 ```
 
-Keyword arguments mirror the CLI flags exposed by
-`ViskoresVolumeRenderer`. The module initializes and finalizes MPI/AMReX on
-demand when run inside a Python interpreter.
+Keyword arguments mirror the CLI flags exposed by the renderer binary.
+The module initializes and finalizes MPI/AMReX on demand when run inside a
+Python interpreter.
 
 ## Testing
 
@@ -111,7 +95,7 @@ keeping image sizes small for fast turnaround.
 
 - `DirectSend/` MPI compositor implementations and supporting utilities.
 - `Common/` Rendering primitives, image buffers, and reusable utilities (with tests under `Common/Testing/`).
-- `ViskoresVolumeRenderer/` CLI driver that exercises the production pipeline.
+- CLI driver that exercises the production pipeline.
 - `python/` Scriptable bindings built atop the C++ core.
 - External dependencies (AMReX, nanobind) are populated under `build/_deps/` when configuring via CMake.
 - `CMake/` Build-time helpers and shared CMake modules.

@@ -5,11 +5,8 @@
 #ifndef AMRVOLUMERENDERER_VOLUME_TYPES_HPP
 #define AMRVOLUMERENDERER_VOLUME_TYPES_HPP
 
-#include <amrVolumeRendererConfig.h>
-
-#ifdef AMRVOLUMERENDERER_ENABLE_VISKORES
-
-#include <viskores/Types.h>
+#include <AMReX_IntVect.H>
+#include <AMReX_RealVect.H>
 
 #include <vector>
 
@@ -17,21 +14,21 @@ namespace amrVolumeRenderer {
 namespace volume {
 
 struct AmrBox {
-  viskores::Vec3f_32 minCorner;
-  viskores::Vec3f_32 maxCorner;
-  viskores::Id3 cellDimensions;
+  amrex::RealVect minCorner;
+  amrex::RealVect maxCorner;
+  amrex::IntVect cellDimensions;
   std::vector<float> cellValues;
 };
 
 struct VolumeBounds {
-  viskores::Vec3f_32 minCorner;
-  viskores::Vec3f_32 maxCorner;
+  amrex::RealVect minCorner;
+  amrex::RealVect maxCorner;
 };
 
 struct CameraParameters {
-  viskores::Vec3f_32 eye;
-  viskores::Vec3f_32 lookAt;
-  viskores::Vec3f_32 up;
+  amrex::RealVect eye;
+  amrex::RealVect lookAt;
+  amrex::RealVect up;
   float fovYDegrees;
   float nearPlane;
   float farPlane;
@@ -49,7 +46,5 @@ using ColorMap = std::vector<ColorMapControlPoint>;
 
 }  // namespace volume
 }  // namespace amrVolumeRenderer
-
-#endif  // AMRVOLUMERENDERER_ENABLE_VISKORES
 
 #endif  // AMRVOLUMERENDERER_VOLUME_TYPES_HPP
