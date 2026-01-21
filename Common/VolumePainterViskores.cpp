@@ -40,6 +40,35 @@ struct ColorTableEntry {
   float a = 0.0f;
 };
 
+struct ColorNode {
+  float value = 0.0f;
+  float r = 0.0f;
+  float g = 0.0f;
+  float b = 0.0f;
+};
+
+struct OpacityNode {
+  float value = 0.0f;
+  float alpha = 0.0f;
+  float midpoint = 0.5f;
+  float sharpness = 0.0f;
+};
+
+enum class ColorSpace {
+  kRGB,
+  kLab,
+};
+
+struct ColorTableSpec {
+  ColorSpace space = ColorSpace::kRGB;
+  std::vector<ColorNode> colors;
+  std::vector<OpacityNode> opacity;
+  ColorTableEntry nanColor{0.5f, 0.0f, 0.0f, 1.0f};
+  ColorTableEntry belowRange{0.0f, 0.0f, 0.0f, 1.0f};
+  ColorTableEntry aboveRange{0.0f, 0.0f, 0.0f, 1.0f};
+  bool useClamping = true;
+};
+
 float saturateSoftTail(float value, float clipStart, float rolloffEnd) {
   const float clampedEnd = std::max(clipStart, rolloffEnd);
   if (!(clampedEnd > clipStart + kSoftClipTolerance)) {
@@ -115,57 +144,319 @@ float computeScaledAlpha(float baseAlpha,
   return std::clamp(scaledAlpha, 0.0f, 1.0f);
 }
 
-float jetComponent(float t, float shift) {
-  return std::clamp(1.5f - std::fabs(4.0f * t - shift), 0.0f, 1.0f);
+void insertColorNode(ColorTableSpec& table, const ColorNode& node) {
+  auto it = std::lower_bound(
+      table.colors.begin(),
+      table.colors.end(),
+      node.value,
+      [](const ColorNode& left, float value) { return left.value < value; });
+  if (it != table.colors.end() && it->value == node.value) {
+    *it = node;
+    return;
+  }
+  table.colors.insert(it, node);
 }
 
-ColorTableEntry sampleColorMap(
-    float value,
-    float alphaScale,
-    float normalizationFactor,
-    const amrVolumeRenderer::volume::ColorMap& colorMap) {
-  if (colorMap.empty()) {
-    return {};
+void insertOpacityNode(ColorTableSpec& table, const OpacityNode& node) {
+  auto it = std::lower_bound(
+      table.opacity.begin(),
+      table.opacity.end(),
+      node.value,
+      [](const OpacityNode& left, float value) { return left.value < value; });
+  if (it != table.opacity.end() && it->value == node.value) {
+    *it = node;
+    return;
+  }
+  table.opacity.insert(it, node);
+}
+
+std::pair<float, float> getTableRange(const ColorTableSpec& table) {
+  bool hasRange = false;
+  float minValue = 0.0f;
+  float maxValue = 0.0f;
+  for (const auto& node : table.colors) {
+    if (!hasRange) {
+      minValue = node.value;
+      maxValue = node.value;
+      hasRange = true;
+      continue;
+    }
+    minValue = std::min(minValue, node.value);
+    maxValue = std::max(maxValue, node.value);
+  }
+  for (const auto& node : table.opacity) {
+    if (!hasRange) {
+      minValue = node.value;
+      maxValue = node.value;
+      hasRange = true;
+      continue;
+    }
+    minValue = std::min(minValue, node.value);
+    maxValue = std::max(maxValue, node.value);
+  }
+  if (!hasRange) {
+    return {0.0f, 0.0f};
+  }
+  return {minValue, maxValue};
+}
+
+void rescaleTableToRange(ColorTableSpec& table,
+                         float rangeMin,
+                         float rangeMax) {
+  const auto oldRange = getTableRange(table);
+  const float oldSpan = oldRange.second - oldRange.first;
+  const float newSpan = rangeMax - rangeMin;
+  if (!(oldSpan > 0.0f) || !(newSpan > 0.0f)) {
+    return;
+  }
+  for (auto& node : table.colors) {
+    const float t = (node.value - oldRange.first) / oldSpan;
+    node.value = rangeMin + newSpan * t;
+  }
+  for (auto& node : table.opacity) {
+    const float t = (node.value - oldRange.first) / oldSpan;
+    node.value = rangeMin + newSpan * t;
+  }
+}
+
+ColorTableEntry rgbToLab(ColorTableEntry rgb) {
+  float r = rgb.r;
+  float g = rgb.g;
+  float b = rgb.b;
+  if (r > 0.04045f) {
+    r = std::pow((r + 0.055f) / 1.055f, 2.4f);
+  } else {
+    r = r / 12.92f;
+  }
+  if (g > 0.04045f) {
+    g = std::pow((g + 0.055f) / 1.055f, 2.4f);
+  } else {
+    g = g / 12.92f;
+  }
+  if (b > 0.04045f) {
+    b = std::pow((b + 0.055f) / 1.055f, 2.4f);
+  } else {
+    b = b / 12.92f;
   }
 
-  if (value <= colorMap.front().value) {
-    const auto& first = colorMap.front();
-    return {std::clamp(first.red, 0.0f, 1.0f),
-            std::clamp(first.green, 0.0f, 1.0f),
-            std::clamp(first.blue, 0.0f, 1.0f),
-            computeScaledAlpha(first.alpha, alphaScale, normalizationFactor)};
+  float x = r * 0.4124f + g * 0.3576f + b * 0.1805f;
+  float y = r * 0.2126f + g * 0.7152f + b * 0.0722f;
+  float z = r * 0.0193f + g * 0.1192f + b * 0.9505f;
+
+  constexpr float oneThird = 1.0f / 3.0f;
+  constexpr float sixteenOver116 = 16.0f / 116.0f;
+  constexpr float refX = 0.9505f;
+  constexpr float refY = 1.0f;
+  constexpr float refZ = 1.089f;
+  float varX = x / refX;
+  float varY = y / refY;
+  float varZ = z / refZ;
+  if (varX > 0.008856f) {
+    varX = std::pow(varX, oneThird);
+  } else {
+    varX = (7.787f * varX) + sixteenOver116;
+  }
+  if (varY > 0.008856f) {
+    varY = std::pow(varY, oneThird);
+  } else {
+    varY = (7.787f * varY) + sixteenOver116;
+  }
+  if (varZ > 0.008856f) {
+    varZ = std::pow(varZ, oneThird);
+  } else {
+    varZ = (7.787f * varZ) + sixteenOver116;
   }
 
-  for (std::size_t idx = 1; idx < colorMap.size(); ++idx) {
-    const auto& left = colorMap[idx - 1];
-    const auto& right = colorMap[idx];
-    if (value <= right.value) {
+  ColorTableEntry lab;
+  lab.r = (116.0f * varY) - 16.0f;
+  lab.g = 500.0f * (varX - varY);
+  lab.b = 200.0f * (varY - varZ);
+  lab.a = rgb.a;
+  return lab;
+}
+
+ColorTableEntry labToRgb(ColorTableEntry lab) {
+  constexpr float sixteenOver116 = 16.0f / 116.0f;
+  float y = (lab.r + 16.0f) / 116.0f;
+  float x = lab.g / 500.0f + y;
+  float z = y - lab.b / 200.0f;
+  if (std::pow(x, 3.0f) > 0.008856f) {
+    x = std::pow(x, 3.0f);
+  } else {
+    x = (x - sixteenOver116) / 7.787f;
+  }
+  if (std::pow(y, 3.0f) > 0.008856f) {
+    y = std::pow(y, 3.0f);
+  } else {
+    y = (y - sixteenOver116) / 7.787f;
+  }
+  if (std::pow(z, 3.0f) > 0.008856f) {
+    z = std::pow(z, 3.0f);
+  } else {
+    z = (z - sixteenOver116) / 7.787f;
+  }
+
+  constexpr float refX = 0.9505f;
+  constexpr float refY = 1.0f;
+  constexpr float refZ = 1.089f;
+  x *= refX;
+  y *= refY;
+  z *= refZ;
+
+  float r = x * 3.2406f + y * -1.5372f + z * -0.4986f;
+  float g = x * -0.9689f + y * 1.8758f + z * 0.0415f;
+  float b = x * 0.0557f + y * -0.2040f + z * 1.0570f;
+
+  constexpr float oneOver2p4 = 1.0f / 2.4f;
+  if (r > 0.0031308f) {
+    r = 1.055f * std::pow(r, oneOver2p4) - 0.055f;
+  } else {
+    r = 12.92f * r;
+  }
+  if (g > 0.0031308f) {
+    g = 1.055f * std::pow(g, oneOver2p4) - 0.055f;
+  } else {
+    g = 12.92f * g;
+  }
+  if (b > 0.0031308f) {
+    b = 1.055f * std::pow(b, oneOver2p4) - 0.055f;
+  } else {
+    b = 12.92f * b;
+  }
+
+  const float maxVal = std::max(r, std::max(g, b));
+  if (maxVal > 1.0f) {
+    r /= maxVal;
+    g /= maxVal;
+    b /= maxVal;
+  }
+
+  ColorTableEntry rgb;
+  rgb.r = std::max(r, 0.0f);
+  rgb.g = std::max(g, 0.0f);
+  rgb.b = std::max(b, 0.0f);
+  rgb.a = lab.a;
+  return rgb;
+}
+
+ColorTableEntry lerpColor(const ColorTableEntry& left,
+                          const ColorTableEntry& right,
+                          float t) {
+  return {left.r + (right.r - left.r) * t,
+          left.g + (right.g - left.g) * t,
+          left.b + (right.b - left.b) * t,
+          left.a + (right.a - left.a) * t};
+}
+
+ColorTableEntry mapColorValue(const ColorTableSpec& table, float value) {
+  if (!std::isfinite(value)) {
+    return table.nanColor;
+  }
+  if (table.colors.empty()) {
+    return table.belowRange;
+  }
+
+  const ColorNode& first = table.colors.front();
+  const ColorNode& last = table.colors.back();
+
+  if (value < first.value) {
+    if (!table.useClamping) {
+      return table.belowRange;
+    }
+    return {first.r, first.g, first.b, 1.0f};
+  }
+  if (value > last.value) {
+    if (!table.useClamping) {
+      return table.aboveRange;
+    }
+    return {last.r, last.g, last.b, 1.0f};
+  }
+  if (value == first.value) {
+    return {first.r, first.g, first.b, 1.0f};
+  }
+  if (value == last.value) {
+    return {last.r, last.g, last.b, 1.0f};
+  }
+
+  for (std::size_t idx = 1; idx < table.colors.size(); ++idx) {
+    const ColorNode& right = table.colors[idx];
+    if (right.value >= value) {
+      const ColorNode& left = table.colors[idx - 1];
       const float span = right.value - left.value;
       const float t = (span > 0.0f) ? (value - left.value) / span : 0.0f;
-      const float r = std::clamp(left.red + (right.red - left.red) * t,
-                                 0.0f,
-                                 1.0f);
-      const float g = std::clamp(left.green + (right.green - left.green) * t,
-                                 0.0f,
-                                 1.0f);
-      const float b = std::clamp(left.blue + (right.blue - left.blue) * t,
-                                 0.0f,
-                                 1.0f);
-      const float aLeft =
-          computeScaledAlpha(left.alpha, alphaScale, normalizationFactor);
-      const float aRight =
-          computeScaledAlpha(right.alpha, alphaScale, normalizationFactor);
-      const float a =
-          std::clamp(aLeft + (aRight - aLeft) * t, 0.0f, 1.0f);
-      return {r, g, b, a};
+      ColorTableEntry leftRgb{left.r, left.g, left.b, 1.0f};
+      ColorTableEntry rightRgb{right.r, right.g, right.b, 1.0f};
+      if (table.space == ColorSpace::kLab) {
+        leftRgb = rgbToLab(leftRgb);
+        rightRgb = rgbToLab(rightRgb);
+        ColorTableEntry lab = lerpColor(leftRgb, rightRgb, t);
+        return labToRgb(lab);
+      }
+      return lerpColor(leftRgb, rightRgb, t);
     }
   }
+  return {last.r, last.g, last.b, 1.0f};
+}
 
-  const auto& last = colorMap.back();
-  return {std::clamp(last.red, 0.0f, 1.0f),
-          std::clamp(last.green, 0.0f, 1.0f),
-          std::clamp(last.blue, 0.0f, 1.0f),
-          computeScaledAlpha(last.alpha, alphaScale, normalizationFactor)};
+float mapOpacityValue(const ColorTableSpec& table, float value) {
+  if (!std::isfinite(value)) {
+    return 1.0f;
+  }
+  if (table.opacity.empty()) {
+    return 1.0f;
+  }
+
+  const OpacityNode& first = table.opacity.front();
+  const OpacityNode& last = table.opacity.back();
+  if (value <= first.value) {
+    return first.alpha;
+  }
+  if (value >= last.value) {
+    return last.alpha;
+  }
+
+  for (std::size_t idx = 1; idx < table.opacity.size(); ++idx) {
+    const OpacityNode& right = table.opacity[idx];
+    if (right.value >= value) {
+      const OpacityNode& left = table.opacity[idx - 1];
+      const float span = right.value - left.value;
+      float weight = (span > 0.0f) ? (value - left.value) / span : 0.0f;
+
+      if (weight < left.midpoint) {
+        weight = 0.5f * weight / left.midpoint;
+      } else {
+        weight = 0.5f + 0.5f * (weight - left.midpoint) / (1.0f - left.midpoint);
+      }
+
+      if (left.sharpness == 1.0f) {
+        return (weight < 0.5f) ? left.alpha : right.alpha;
+      }
+      if (left.sharpness == 0.0f) {
+        return left.alpha + (right.alpha - left.alpha) * weight;
+      }
+
+      if (weight < 0.5f) {
+        weight = 0.5f * std::pow(weight * 2.0f, 1.0f + 10.0f * left.sharpness);
+      } else if (weight > 0.5f) {
+        weight = 1.0f - 0.5f * std::pow((1.0f - weight) * 2.0f,
+                                        1.0f + 10.0f * left.sharpness);
+      }
+
+      const float ww = weight * weight;
+      const float www = ww * weight;
+      const float h1 = 2.0f * www - 3.0f * ww + 1.0f;
+      const float h2 = -2.0f * www + 3.0f * ww;
+      const float h3 = www - 2.0f * ww + weight;
+      const float h4 = www - ww;
+      const float slope = right.alpha - left.alpha;
+      const float t = (1.0f - left.sharpness) * slope;
+      float result = h1 * left.alpha + h2 * right.alpha + h3 * t + h4 * t;
+      result = std::max(result, std::min(left.alpha, right.alpha));
+      result = std::min(result, std::max(left.alpha, right.alpha));
+      return result;
+    }
+  }
+  return last.alpha;
 }
 
 std::vector<ColorTableEntry> buildColorTable(
@@ -173,70 +464,75 @@ std::vector<ColorTableEntry> buildColorTable(
     float normalizationFactor,
     const std::pair<float, float>& scalarRange,
     const amrVolumeRenderer::volume::ColorMap* colorMap) {
-  std::vector<ColorTableEntry> table(static_cast<std::size_t>(kColorTableSize));
+  ColorTableSpec table;
+  table.useClamping = true;
+
+  if (colorMap != nullptr && !colorMap->empty()) {
+    table.space = ColorSpace::kLab;
+    table.nanColor = {1.0f, 0.0f, 0.0f, 1.0f};
+    for (const auto& point : *colorMap) {
+      ColorNode node;
+      node.value = point.value;
+      node.r = std::clamp(point.red, 0.0f, 1.0f);
+      node.g = std::clamp(point.green, 0.0f, 1.0f);
+      node.b = std::clamp(point.blue, 0.0f, 1.0f);
+      insertColorNode(table, node);
+
+      OpacityNode opacity;
+      opacity.value = point.value;
+      opacity.alpha =
+          computeScaledAlpha(point.alpha, alphaScale, normalizationFactor);
+      insertOpacityNode(table, opacity);
+    }
+  } else {
+    table.space = ColorSpace::kRGB;
+    table.nanColor = {0.25f, 0.0f, 0.0f, 1.0f};
+
+    const std::array<ColorNode, 7> jetNodes = {{
+        {0.0f, 0.0f, 0.0f, 0.5625f},
+        {0.111111f, 0.0f, 0.0f, 1.0f},
+        {0.3650795f, 0.0f, 1.0f, 1.0f},
+        {0.4920635f, 0.5f, 1.0f, 0.5f},
+        {0.6190475f, 1.0f, 1.0f, 0.0f},
+        {0.873016f, 1.0f, 0.0f, 0.0f},
+        {1.0f, 0.5f, 0.0f, 0.0f},
+    }};
+    for (const auto& node : jetNodes) {
+      insertColorNode(table, node);
+    }
+
+    const std::array<float, 6> positions = {
+        0.0f, 0.15f, 0.35f, 0.6f, 0.85f, 1.0f};
+    const std::array<float, 6> alphaValues = {
+        0.05f, 0.15f, 0.22f, 0.3f, 0.38f, 0.5f};
+    const float rangeMin = scalarRange.first;
+    const float rangeMax = scalarRange.second;
+    const float rangeSpan = rangeMax - rangeMin;
+    for (std::size_t i = 0; i < positions.size(); ++i) {
+      OpacityNode opacity;
+      opacity.value = positions[i] * rangeSpan + rangeMin;
+      opacity.alpha = computeScaledAlpha(alphaValues[i],
+                                          alphaScale,
+                                          normalizationFactor);
+      insertOpacityNode(table, opacity);
+    }
+    rescaleTableToRange(table, scalarRange.first, scalarRange.second);
+  }
+
+  std::vector<ColorTableEntry> samples(
+      static_cast<std::size_t>(kColorTableSize));
   const float rangeMin = scalarRange.first;
   const float rangeMax = scalarRange.second;
   const float rangeSpan = rangeMax - rangeMin;
-  const float invSpan = (rangeSpan != 0.0f) ? (1.0f / rangeSpan) : 1.0f;
-
-  if (colorMap != nullptr && !colorMap->empty()) {
-    for (int i = 0; i < kColorTableSize; ++i) {
-      const float t = static_cast<float>(i) /
-                      static_cast<float>(kColorTableSize - 1);
-      const float value = rangeMin + rangeSpan * t;
-      table[static_cast<std::size_t>(i)] =
-          sampleColorMap(value, alphaScale, normalizationFactor, *colorMap);
-    }
-    return table;
-  }
-
-  const std::array<float, 6> positions = {
-      0.0f, 0.15f, 0.35f, 0.6f, 0.85f, 1.0f};
-  const std::array<float, 6> alphaValues = {
-      0.05f, 0.15f, 0.22f, 0.3f, 0.38f, 0.5f};
-
-  std::array<float, 6> alphaPositions;
-  std::array<float, 6> scaledAlphas;
-  for (std::size_t idx = 0; idx < positions.size(); ++idx) {
-    alphaPositions[idx] = positions[idx] * rangeSpan + rangeMin;
-    scaledAlphas[idx] = computeScaledAlpha(alphaValues[idx],
-                                           alphaScale,
-                                           normalizationFactor);
-  }
-
   for (int i = 0; i < kColorTableSize; ++i) {
     const float t = static_cast<float>(i) /
                     static_cast<float>(kColorTableSize - 1);
     const float value = rangeMin + rangeSpan * t;
-    const float normalized =
-        std::clamp((value - rangeMin) * invSpan, 0.0f, 1.0f);
-    const float r = jetComponent(normalized, 3.0f);
-    const float g = jetComponent(normalized, 2.0f);
-    const float b = jetComponent(normalized, 1.0f);
-
-    float alpha = scaledAlphas.back();
-    if (value <= alphaPositions.front()) {
-      alpha = scaledAlphas.front();
-    } else {
-      for (std::size_t idx = 1; idx < alphaPositions.size(); ++idx) {
-        if (value <= alphaPositions[idx]) {
-          const float span = alphaPositions[idx] - alphaPositions[idx - 1];
-          const float localT =
-              (span > 0.0f) ? (value - alphaPositions[idx - 1]) / span : 0.0f;
-          alpha = std::clamp(scaledAlphas[idx - 1] +
-                                 (scaledAlphas[idx] - scaledAlphas[idx - 1]) *
-                                     localT,
-                             0.0f,
-                             1.0f);
-          break;
-        }
-      }
-    }
-
-    table[static_cast<std::size_t>(i)] = {r, g, b, alpha};
+    ColorTableEntry rgb = mapColorValue(table, value);
+    rgb.a = mapOpacityValue(table, value);
+    samples[static_cast<std::size_t>(i)] = rgb;
   }
-
-  return table;
+  return samples;
 }
 
 Vec3 safeNormalize(const Vec3& input) {
