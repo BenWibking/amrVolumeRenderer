@@ -30,6 +30,7 @@ set(srcs
 
 set(headers
   ${CMAKE_CURRENT_BINARY_DIR}/amrVolumeRendererConfig.h
+  CameraUtils.hpp
   Color.hpp
   Compositor.hpp
   Image.hpp

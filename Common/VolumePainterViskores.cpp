@@ -4,6 +4,7 @@
 
 #include <Common/VolumePainterViskores.hpp>
 
+#include <Common/CameraUtils.hpp>
 #include <Common/Color.hpp>
 #include <Common/ImageRGBAFloatColorDepthSort.hpp>
 
@@ -28,6 +29,8 @@ namespace {
 using Vec3 = amrex::RealVect;
 using Vec4 = amrex::SmallMatrix<float, 4, 1>;
 using Matrix4x4 = amrex::SmallMatrix<float, 4, 4>;
+using amrVolumeRenderer::camera::makeViewMatrix;
+using amrVolumeRenderer::camera::safeNormalize;
 
 constexpr int kColorTableSize = 256;
 constexpr float kSoftClipTolerance = 1e-5f;
@@ -533,51 +536,6 @@ std::vector<ColorTableEntry> buildColorTable(
     samples[static_cast<std::size_t>(i)] = rgb;
   }
   return samples;
-}
-
-Vec3 safeNormalize(const Vec3& input) {
-  const amrex::Real length = input.vectorLength();
-  if (length > 0.0 && std::isfinite(static_cast<double>(length))) {
-    return input / length;
-  }
-  return Vec3(0.0, 0.0, -1.0);
-}
-
-Matrix4x4 makeViewMatrix(const Vec3& eye,
-                         const Vec3& lookAt,
-                         const Vec3& up) {
-  const Vec3 forward = safeNormalize(lookAt - eye);
-  Vec3 right = forward.crossProduct(up);
-  const amrex::Real rightLength = right.vectorLength();
-  if (rightLength > 0.0 && std::isfinite(static_cast<double>(rightLength))) {
-    right /= rightLength;
-  } else {
-    right = Vec3(1.0, 0.0, 0.0);
-  }
-  const Vec3 upOrtho = right.crossProduct(forward);
-
-  Matrix4x4 view = Matrix4x4::Identity();
-  view(0, 0) = static_cast<float>(right[0]);
-  view(1, 0) = static_cast<float>(right[1]);
-  view(2, 0) = static_cast<float>(right[2]);
-  view(3, 0) = static_cast<float>(-right.dotProduct(eye));
-
-  view(0, 1) = static_cast<float>(upOrtho[0]);
-  view(1, 1) = static_cast<float>(upOrtho[1]);
-  view(2, 1) = static_cast<float>(upOrtho[2]);
-  view(3, 1) = static_cast<float>(-upOrtho.dotProduct(eye));
-
-  view(0, 2) = static_cast<float>(-forward[0]);
-  view(1, 2) = static_cast<float>(-forward[1]);
-  view(2, 2) = static_cast<float>(-forward[2]);
-  view(3, 2) = static_cast<float>(forward.dotProduct(eye));
-
-  view(0, 3) = 0.0f;
-  view(1, 3) = 0.0f;
-  view(2, 3) = 0.0f;
-  view(3, 3) = 1.0f;
-
-  return view;
 }
 
 Matrix4x4 makePerspectiveMatrix(float fovYDegrees,
