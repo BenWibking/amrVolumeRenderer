@@ -11,6 +11,13 @@ cmake_minimum_required(VERSION 3.14)
 
 project(amrVolumeRenderer)
 
+if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING
+      "Choose the build type, e.g. Release, Debug, or RelWithDebInfo.")
+  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+               "Release" "Debug" "MinSizeRel" "RelWithDebInfo")
+endif()
+
 option(AMRVOLUMERENDERER_ENABLE_TESTING "Turn on/off building tests." ON)
 if (AMRVOLUMERENDERER_ENABLE_TESTING)
   enable_testing()
