@@ -280,7 +280,8 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
   const float pixelRadius =
       0.5f * static_cast<float>(std::max(sqrtAntialiasing, 1));
   const float influenceRadius = pixelRadius + 0.5f;
-  const float coverageScale = 0.6f;
+  // Scale factor to adjust line thickness for better visual appearance.
+  constexpr float coverageScale = 0.6f;
 
   for (const auto& edge : edges) {
     const ScreenCorner& start =
