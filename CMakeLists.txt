@@ -55,7 +55,7 @@ FetchContent_MakeAvailable(nanobind)
 # will significantly speed up when this file is included in subdirectories.
 include(CMake/amrVolumeRendererMacros.cmake)
 
-add_subdirectory(ViskoresVolumeRenderer)
+add_subdirectory(VolumeRenderer)
 
 if (TARGET volume_renderer)
   add_subdirectory(python)

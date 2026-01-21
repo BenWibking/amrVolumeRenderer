@@ -43,7 +43,7 @@ sdist.include = [
   "Common",
   "DirectSend",
   "python",
-  "ViskoresVolumeRenderer",
+  "VolumeRenderer",
   "nanobind",
   "AMReX",
   "LICENSE.TXT",

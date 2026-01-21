@@ -1,5 +1,5 @@
-#ifndef VISKORES_VOLUME_RENDERER_HPP
-#define VISKORES_VOLUME_RENDERER_HPP
+#ifndef AMRVOLUMERENDERER_VOLUME_RENDERER_HPP
+#define AMRVOLUMERENDERER_VOLUME_RENDERER_HPP
 
 #include <AMReX_RealVect.H>
 #include <mpi.h>
@@ -14,9 +14,9 @@
 #include <vector>
 
 /// \brief Miniapp that renders distributed volumetric data using AMReX.
-class ViskoresVolumeRenderer {
+class VolumeRenderer {
  public:
-  ViskoresVolumeRenderer();
+  VolumeRenderer();
 
   /// \brief Execute the miniapp entry point.
   int run(int argc, char** argv);
@@ -54,7 +54,7 @@ class ViskoresVolumeRenderer {
 
   struct RunOptions {
     RenderParameters parameters;
-    std::string outputFilename = "viskores-volume.ppm";
+    std::string outputFilename = "volume-renderer.ppm";
     std::string plotfilePath;
     std::string variableName;
     int minLevel = 0;
@@ -159,4 +159,4 @@ class ViskoresVolumeRenderer {
   int numProcs;
 };
 
-#endif  // VISKORES_VOLUME_RENDERER_HPP
+#endif  // AMRVOLUMERENDERER_VOLUME_RENDERER_HPP

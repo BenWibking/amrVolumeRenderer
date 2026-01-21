@@ -102,7 +102,7 @@ def _parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace
         "--output",
         type=Path,
         default=None,
-        help="Output image filename (supports .ppm or .png, default: viskores-volume.ppm)",
+        help="Output image filename (supports .ppm or .png, default: volume-renderer.ppm)",
     )
     return parser.parse_args(argv)
 

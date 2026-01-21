@@ -47,7 +47,7 @@ set(headers
   ImageSparse.hpp
   ImageSparseColorDepth.hpp
   ImageSparseColorOnly.hpp
-  VolumePainterViskores.hpp
+  VolumePainter.hpp
   VolumeTypes.hpp
   VisibilityOrdering.hpp
   SavePPM.hpp

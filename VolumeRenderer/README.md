@@ -28,7 +28,7 @@ mpirun -np 4 build/bin/volume_renderer \
 - `--box-transparency`: Per-box transparency factor in `[0, 1]` (default: 0).
 - `--antialiasing`: Supersampling factor (must be a positive perfect square: 1, 4, 9, ...).
 - `--visibility-graph` / `--no-visibility-graph`: Toggle visibility-graph ordering (enabled by default).
-- `--output`: Destination filename for the composited image (supports `.ppm` and `.png`, default: `viskores-volume.ppm`).
+- `--output`: Destination filename for the composited image (supports `.ppm` and `.png`, default: `volume-renderer.ppm`).
 
 Images are written on rank 0.
 PNG outputs are saved as 8-bit RGB with the alpha channel discarded.
@@ -40,15 +40,15 @@ The rendering pipeline can be invoked programmatically. Provide a scene descript
 ```cpp
 #include <AMReX_IntVect.H>
 #include <AMReX_RealVect.H>
-#include "ViskoresVolumeRenderer.hpp"
+#include "VolumeRenderer.hpp"
 
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
 
-  ViskoresVolumeRenderer example;
+  VolumeRenderer example;
 
-  ViskoresVolumeRenderer::SceneGeometry geometry;
-  ViskoresVolumeRenderer::AmrBox box;
+  VolumeRenderer::SceneGeometry geometry;
+  VolumeRenderer::AmrBox box;
   box.minCorner = amrex::RealVect(-0.5, -0.5, -0.5);
   box.maxCorner = amrex::RealVect(0.5, 0.5, 0.5);
   box.cellDimensions = amrex::IntVect(32, 32, 32);
@@ -57,12 +57,12 @@ int main(int argc, char** argv) {
   geometry.localBoxes.push_back(box);
   // Optionally set geometry.explicitBounds and geometry.hasExplicitBounds.
 
-  ViskoresVolumeRenderer::RenderParameters params;
+  VolumeRenderer::RenderParameters params;
   params.width = 800;
   params.height = 600;
   params.antialiasing = 4;  // 2x2 supersampling
 
-  ViskoresVolumeRenderer::CameraParameters camera;
+  VolumeRenderer::CameraParameters camera;
   camera.eye = amrex::RealVect(0.0, 0.5, 3.0);
   camera.lookAt = amrex::RealVect(0.0, 0.0, 0.0);
   camera.up = amrex::RealVect(0.0, 1.0, 0.0);

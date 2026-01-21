@@ -1,4 +1,4 @@
-#include "ViskoresVolumeRenderer.hpp"
+#include "VolumeRenderer.hpp"
 
 #include <AMReX.H>
 #include <AMReX_MultiFabUtil.H>
@@ -15,7 +15,7 @@
 #include <Common/SavePNG.hpp>
 #include <Common/SavePPM.hpp>
 #include <Common/VisibilityOrdering.hpp>
-#include <Common/VolumePainterViskores.hpp>
+#include <Common/VolumePainter.hpp>
 #include <Common/VolumeTypes.hpp>
 #include <DirectSend/Base/DirectSendBase.hpp>
 #include <algorithm>
@@ -356,7 +356,7 @@ void renderBoundingBoxLayer(const VolumeBounds& bounds,
 
 }
 
-using ParsedOptions = ViskoresVolumeRenderer::RunOptions;
+using ParsedOptions = VolumeRenderer::RunOptions;
 
 void printUsage() {
   std::cout
@@ -383,7 +383,7 @@ void printUsage() {
       << "  --log-scale      Apply natural log scaling before normalizing the "
          "input field\n"
       << "  --output FILE    Output filename (supports .ppm or .png; default: "
-      << "viskores-volume.ppm)\n"
+      << "volume-renderer.ppm)\n"
       << "  -h, --help       Show this help message\n";
 }
 
@@ -576,12 +576,12 @@ float computeBoxDepthHint(const AmrBox& box, const CameraParameters& camera) {
 
 }  // namespace
 
-ViskoresVolumeRenderer::ViskoresVolumeRenderer() : rank(0), numProcs(1) {
+VolumeRenderer::VolumeRenderer() : rank(0), numProcs(1) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
 }
 
-void ViskoresVolumeRenderer::validateRenderParameters(
+void VolumeRenderer::validateRenderParameters(
     const RenderParameters& parameters) const {
   if (parameters.width <= 0 || parameters.height <= 0) {
     throw std::invalid_argument("image dimensions must be positive");
@@ -600,14 +600,14 @@ void ViskoresVolumeRenderer::validateRenderParameters(
   }
 }
 
-void ViskoresVolumeRenderer::initialize() const {
+void VolumeRenderer::initialize() const {
   if (rank == 0) {
     std::cout << "volume_renderer: Using AMReX volume mapper on "
               << numProcs << " ranks" << std::endl;
   }
 }
 
-auto ViskoresVolumeRenderer::loadPlotFileGeometry(
+auto VolumeRenderer::loadPlotFileGeometry(
     const std::string& plotfilePath,
     const std::string& variableName,
     int requestedMinLevel,
@@ -1093,8 +1093,8 @@ auto ViskoresVolumeRenderer::loadPlotFileGeometry(
   return scene;
 }
 
-ViskoresVolumeRenderer::VolumeBounds
-ViskoresVolumeRenderer::computeGlobalBounds(
+VolumeRenderer::VolumeBounds
+VolumeRenderer::computeGlobalBounds(
     const std::vector<AmrBox>& boxes,
     bool hasExplicitBounds,
     const VolumeBounds& explicitBounds) const {
@@ -1168,7 +1168,7 @@ ViskoresVolumeRenderer::computeGlobalBounds(
   return bounds;
 }
 
-ViskoresVolumeRenderer::VolumeBounds ViskoresVolumeRenderer::computeTightBounds(
+VolumeRenderer::VolumeBounds VolumeRenderer::computeTightBounds(
     const std::vector<AmrBox>& boxes, const VolumeBounds& fallback) const {
   Vec3 localMin(std::numeric_limits<float>::max());
   Vec3 localMax(-std::numeric_limits<float>::max());
@@ -1228,7 +1228,7 @@ ViskoresVolumeRenderer::VolumeBounds ViskoresVolumeRenderer::computeTightBounds(
   return tight;
 }
 
-std::pair<float, float> ViskoresVolumeRenderer::computeGlobalScalarRange(
+std::pair<float, float> VolumeRenderer::computeGlobalScalarRange(
     const std::vector<AmrBox>& boxes) const {
   float localMin = std::numeric_limits<float>::infinity();
   float localMax = -std::numeric_limits<float>::infinity();
@@ -1259,7 +1259,7 @@ std::pair<float, float> ViskoresVolumeRenderer::computeGlobalScalarRange(
   return {globalMin, globalMax};
 }
 
-auto ViskoresVolumeRenderer::computeScalarHistogram(
+auto VolumeRenderer::computeScalarHistogram(
     const std::string& plotfilePath,
     const std::string& variableName,
     int requestedMinLevel,
@@ -1351,7 +1351,7 @@ auto ViskoresVolumeRenderer::computeScalarHistogram(
   return histogram;
 }
 
-void ViskoresVolumeRenderer::paint(const AmrBox& box,
+void VolumeRenderer::paint(const AmrBox& box,
                                    const VolumeBounds& bounds,
                                    const std::pair<float, float>& scalarRange,
                                    float boxTransparency,
@@ -1360,7 +1360,7 @@ void ViskoresVolumeRenderer::paint(const AmrBox& box,
                                    ImageFull& image,
                                    const CameraParameters& camera,
                                    const ColorMap* colorMap) {
-  static VolumePainterViskores painter;
+  static VolumePainter painter;
   painter.paint(box,
                 bounds,
                 scalarRange,
@@ -1374,12 +1374,12 @@ void ViskoresVolumeRenderer::paint(const AmrBox& box,
                 colorMap);
 }
 
-Compositor* ViskoresVolumeRenderer::getCompositor() {
+Compositor* VolumeRenderer::getCompositor() {
   static DirectSendBase compositor;
   return &compositor;
 }
 
-MPI_Group ViskoresVolumeRenderer::buildVisibilityOrderedGroup(
+MPI_Group VolumeRenderer::buildVisibilityOrderedGroup(
     const CameraParameters& camera,
     float aspect,
     MPI_Group baseGroup,
@@ -1397,7 +1397,7 @@ MPI_Group ViskoresVolumeRenderer::buildVisibilityOrderedGroup(
                                      MPI_COMM_WORLD);
 }
 
-int ViskoresVolumeRenderer::renderScene(
+int VolumeRenderer::renderScene(
     const std::string& outputFilenameBase,
     const RenderParameters& parameters,
     const SceneGeometry& geometry,
@@ -1499,7 +1499,7 @@ int ViskoresVolumeRenderer::renderScene(
                            colorMapPtr);
 }
 
-int ViskoresVolumeRenderer::renderScene(
+int VolumeRenderer::renderScene(
     const std::string& outputFilenameBase,
     const RenderParameters& parameters,
     const SceneGeometry& geometry,
@@ -1551,7 +1551,7 @@ int ViskoresVolumeRenderer::renderScene(
                            colorMapPtr);
 }
 
-int ViskoresVolumeRenderer::renderSingleTrial(
+int VolumeRenderer::renderSingleTrial(
     const std::string& outputFilename,
     const RenderParameters& parameters,
     const SceneGeometry& geometry,
@@ -1787,7 +1787,7 @@ int ViskoresVolumeRenderer::renderSingleTrial(
   return 0;
 }
 
-int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
+int VolumeRenderer::run(const RunOptions& providedOptions) {
   RunOptions options = providedOptions;
 
   validateRenderParameters(options.parameters);
@@ -2042,7 +2042,7 @@ int ViskoresVolumeRenderer::run(const RunOptions& providedOptions) {
                      *colorMapPtr);
 }
 
-int ViskoresVolumeRenderer::run(int argc, char** argv) {
+int VolumeRenderer::run(int argc, char** argv) {
   ParsedOptions options;
 
   try {

@@ -7,7 +7,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 
-#include <ViskoresVolumeRenderer/ViskoresVolumeRenderer.hpp>
+#include <VolumeRenderer/VolumeRenderer.hpp>
 #include <array>
 #include <cmath>
 #include <optional>
@@ -152,7 +152,7 @@ int render_volume(const std::string& plotfilePath,
                       std::nullopt) {
   RuntimeScope runtime;
 
-  ViskoresVolumeRenderer::RunOptions options;
+  VolumeRenderer::RunOptions options;
   options.plotfilePath = plotfilePath;
   options.parameters.width = width;
   options.parameters.height = height;
@@ -228,15 +228,15 @@ int render_volume(const std::string& plotfilePath,
     const float fovY = cameraFovYDegrees.value_or(45.0f);
     const float nearPlane = cameraNearPlane.value_or(0.1f);
     const float farPlane = cameraFarPlane.value_or(1000.0f);
-    options.camera = ViskoresVolumeRenderer::CameraParameters{
+    options.camera = VolumeRenderer::CameraParameters{
         eye, lookAt, up, fovY, nearPlane, farPlane};
   }
 
   if (colorMap) {
-    ViskoresVolumeRenderer::ColorMap controlPoints;
+    VolumeRenderer::ColorMap controlPoints;
     controlPoints.reserve(colorMap->size());
     for (const auto& entry : *colorMap) {
-      ViskoresVolumeRenderer::ColorMapControlPoint point;
+      VolumeRenderer::ColorMapControlPoint point;
       point.value = entry[0];
       point.red = entry[1];
       point.green = entry[2];
@@ -247,7 +247,7 @@ int render_volume(const std::string& plotfilePath,
     options.colorMap = std::move(controlPoints);
   }
 
-  ViskoresVolumeRenderer renderer;
+  VolumeRenderer renderer;
   int exitCode = 0;
   {
     nb::gil_scoped_release release;
@@ -255,7 +255,7 @@ int render_volume(const std::string& plotfilePath,
   }
 
   if (exitCode != 0) {
-    throw std::runtime_error("ViskoresVolumeRenderer returned exit code " +
+    throw std::runtime_error("VolumeRenderer returned exit code " +
                              std::to_string(exitCode));
   }
   return exitCode;
@@ -316,8 +316,8 @@ NB_MODULE(amrVolumeRenderer_ext, module) {
           variable = nb::cast<std::string>(variableName);
         }
 
-        ViskoresVolumeRenderer renderer;
-        ViskoresVolumeRenderer::ScalarHistogram histogram =
+        VolumeRenderer renderer;
+        VolumeRenderer::ScalarHistogram histogram =
             renderer.computeScalarHistogram(plotfilePath,
                                             variable.value_or(std::string()),
                                             minLevel,

@@ -2,7 +2,7 @@
 // See LICENSE.txt for details.
 //
 
-#include <Common/VolumePainterViskores.hpp>
+#include <Common/VolumePainter.hpp>
 
 #include <Common/CameraUtils.hpp>
 #include <Common/Color.hpp>
@@ -565,10 +565,10 @@ Matrix4x4 makePerspectiveMatrix(float fovYDegrees,
 
 }  // namespace
 
-VolumePainterViskores::VolumePainterViskores() = default;
-VolumePainterViskores::~VolumePainterViskores() = default;
+VolumePainter::VolumePainter() = default;
+VolumePainter::~VolumePainter() = default;
 
-void VolumePainterViskores::paint(
+void VolumePainter::paint(
     const amrVolumeRenderer::volume::AmrBox& box,
     const amrVolumeRenderer::volume::VolumeBounds& bounds,
     const std::pair<float, float>& scalarRange,
@@ -586,7 +586,7 @@ void VolumePainterViskores::paint(
   auto* depthSortedImage = dynamic_cast<ImageRGBAFloatColorDepthSort*>(&image);
   if (depthSortedImage == nullptr) {
     throw std::runtime_error(
-        "VolumePainterViskores expects ImageRGBAFloatColorDepthSort images.");
+        "VolumePainter expects ImageRGBAFloatColorDepthSort images.");
   }
 
   try {
@@ -992,7 +992,7 @@ void VolumePainterViskores::paint(
       }
     }
   } catch (const std::exception& error) {
-    std::cerr << "VolumePainterViskores error on rank " << rank << ": "
+    std::cerr << "VolumePainter error on rank " << rank << ": "
               << error.what() << std::endl;
     throw;
   }

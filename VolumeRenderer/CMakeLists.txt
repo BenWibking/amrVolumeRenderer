@@ -38,13 +38,13 @@ endif()
 
 amrVolumeRenderer_executable(volume_renderer
   SOURCES
-    ViskoresVolumeRenderer.cpp
+    VolumeRenderer.cpp
     main.cpp
-    ../Common/VolumePainterViskores.cpp
+    ../Common/VolumePainter.cpp
     ../Common/VisibilityOrdering.cpp
     ../DirectSend/Base/DirectSendBase.cpp
   HEADERS
-    ViskoresVolumeRenderer.hpp
+    VolumeRenderer.hpp
     ../DirectSend/Base/DirectSendBase.hpp
 )
 

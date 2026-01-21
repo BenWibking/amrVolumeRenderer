@@ -7,8 +7,8 @@ amrVolumeRenderer_create_config_header(amrVolumeRendererPythonBindings)
 nanobind_add_module(amrVolumeRenderer_ext MODULE
   amrVolumeRenderer/module.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/amrVolumeRendererConfig.h
-  ../ViskoresVolumeRenderer/ViskoresVolumeRenderer.cpp
-  ../Common/VolumePainterViskores.cpp
+  ../VolumeRenderer/VolumeRenderer.cpp
+  ../Common/VolumePainter.cpp
   ../Common/VisibilityOrdering.cpp
   ../DirectSend/Base/DirectSendBase.cpp
 )

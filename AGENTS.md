@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-The amrVolumeRenderer suite lives under `DirectSend/` (MPI compositor core), `Common/` (rendering primitives, image types, utilities), `ViskoresVolumeRenderer/` (volume driver miniapp), and the `AMReX/` submodule required for AMR inputs. CMake helpers live in `CMake/`, while generated binaries and intermediates stay inside `build/`. Tests reside in `Common/Testing/` alongside the components they cover. Keep new assets or sample frames in their own subtree to avoid polluting `build/`.
+The amrVolumeRenderer suite lives under `DirectSend/` (MPI compositor core), `Common/` (rendering primitives, image types, utilities), `VolumeRenderer/` (volume driver miniapp), and the `AMReX/` submodule required for AMR inputs. CMake helpers live in `CMake/`, while generated binaries and intermediates stay inside `build/`. Tests reside in `Common/Testing/` alongside the components they cover. Keep new assets or sample frames in their own subtree to avoid polluting `build/`.
 
 ## Build, Test, and Development Commands
 Configure once with `cmake -S . -B build -DAMRVOLUMERENDERER_ENABLE_TESTING=ON`. Build using `cmake --build build --target all -j`. Run the sample compositor via `mpirun -np 4 build/bin/volume_renderer --plotfile=plt0010 --width=256 --height=256`. Execute the regression suite with `ctest --test-dir build -V`. Use `cmake --build build --target install` only when you need staged artifacts; clean by deleting `build/`.

@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "ViskoresVolumeRenderer.hpp"
+#include "VolumeRenderer.hpp"
 
 int main(int argc, char* argv[]) {
   std::vector<std::string> originalArgs(argv, argv + argc);
@@ -21,7 +21,7 @@ int main(int argc, char* argv[]) {
 
   int exitCode = 0;
   try {
-    ViskoresVolumeRenderer example;
+    VolumeRenderer example;
     const int argcCopy = static_cast<int>(argvCopy.size());
     exitCode = example.run(argcCopy, argvCopy.data());
   } catch (const std::exception& error) {

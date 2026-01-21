@@ -2,8 +2,8 @@
 // See LICENSE.txt for details.
 //
 
-#ifndef AMRVOLUMERENDERER_VOLUME_PAINTER_VISKORES_HPP
-#define AMRVOLUMERENDERER_VOLUME_PAINTER_VISKORES_HPP
+#ifndef AMRVOLUMERENDERER_VOLUME_PAINTER_HPP
+#define AMRVOLUMERENDERER_VOLUME_PAINTER_HPP
 
 #include <Common/ImageFull.hpp>
 #include <Common/VolumeTypes.hpp>
@@ -11,11 +11,11 @@
 #include <utility>
 #include <vector>
 
-/// \brief Renders volumetric AMR box data to an `ImageFull` using Viskores.
-class VolumePainterViskores {
+/// \brief Renders volumetric AMR box data to an `ImageFull` using the renderer backend.
+class VolumePainter {
  public:
-  VolumePainterViskores();
-  ~VolumePainterViskores();
+  VolumePainter();
+  ~VolumePainter();
 
   void paint(const amrVolumeRenderer::volume::AmrBox& box,
              const amrVolumeRenderer::volume::VolumeBounds& bounds,
@@ -30,4 +30,4 @@ class VolumePainterViskores {
              const amrVolumeRenderer::volume::ColorMap* colorMap);
 };
 
-#endif  // AMRVOLUMERENDERER_VOLUME_PAINTER_VISKORES_HPP
+#endif  // AMRVOLUMERENDERER_VOLUME_PAINTER_HPP
