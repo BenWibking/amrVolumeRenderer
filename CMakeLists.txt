@@ -23,32 +23,36 @@ if (AMRVOLUMERENDERER_ENABLE_TESTING)
   enable_testing()
 endif()
 
+option(AMRVOLUMERENDERER_ENABLE_PYTHON "Turn on/off building Python bindings." ON)
+
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   # Suppress GCC PSA ABI noise when building AMReX headers under C++17+
   add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wno-psabi>")
 endif()
 
-find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+if (AMRVOLUMERENDERER_ENABLE_PYTHON)
+  find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
 
-set(Python_EXECUTABLE ${Python3_EXECUTABLE})
-set(Python_INCLUDE_DIR ${Python3_INCLUDE_DIRS})
-set(Python_INCLUDE_DIRS ${Python3_INCLUDE_DIRS})
-set(Python_LIBRARY ${Python3_LIBRARIES})
-set(Python_LIBRARIES ${Python3_LIBRARIES})
+  set(Python_EXECUTABLE ${Python3_EXECUTABLE})
+  set(Python_INCLUDE_DIR ${Python3_INCLUDE_DIRS})
+  set(Python_INCLUDE_DIRS ${Python3_INCLUDE_DIRS})
+  set(Python_LIBRARY ${Python3_LIBRARIES})
+  set(Python_LIBRARIES ${Python3_LIBRARIES})
 
-include(FetchContent)
+  include(FetchContent)
 
-# Disable nanobind tests when building as a subproject.
-set(NB_TEST OFF CACHE BOOL "" FORCE)
-set(NB_TEST_STABLE_ABI OFF CACHE BOOL "" FORCE)
-set(NB_PYTHON_TARGET Python3::Module CACHE INTERNAL "Python target for nanobind")
-FetchContent_Declare(nanobind
-  GIT_REPOSITORY https://github.com/wjakob/nanobind.git
-  GIT_TAG dd350fe81931a1b362196cb415d188c36422766e
-  GIT_SUBMODULES_RECURSE TRUE
-  GIT_PROGRESS TRUE
-)
-FetchContent_MakeAvailable(nanobind)
+  # Disable nanobind tests when building as a subproject.
+  set(NB_TEST OFF CACHE BOOL "" FORCE)
+  set(NB_TEST_STABLE_ABI OFF CACHE BOOL "" FORCE)
+  set(NB_PYTHON_TARGET Python3::Module CACHE INTERNAL "Python target for nanobind")
+  FetchContent_Declare(nanobind
+    GIT_REPOSITORY https://github.com/wjakob/nanobind.git
+    GIT_TAG dd350fe81931a1b362196cb415d188c36422766e
+    GIT_SUBMODULES_RECURSE TRUE
+    GIT_PROGRESS TRUE
+  )
+  FetchContent_MakeAvailable(nanobind)
+endif()
 
 # These macros are not stricly necessary for this top-level CMake file, but
 # by including it here, we can find the necessary packages once and this
@@ -57,6 +61,6 @@ include(CMake/amrVolumeRendererMacros.cmake)
 
 add_subdirectory(VolumeRenderer)
 
-if (TARGET volume_renderer)
+if (TARGET volume_renderer AND AMRVOLUMERENDERER_ENABLE_PYTHON)
   add_subdirectory(python)
 endif()
