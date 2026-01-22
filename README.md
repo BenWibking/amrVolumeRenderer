@@ -79,6 +79,18 @@ Keyword arguments mirror the CLI flags exposed by the renderer binary.
 The module initializes and finalizes MPI/AMReX on demand when run inside a
 Python interpreter.
 
+## C++ In-Situ Example
+
+The `insitu_example` target demonstrates rendering directly from in-memory
+AMReX MultiFabs using the C++ API (no plotfile I/O). Build and run it with:
+
+```sh
+cmake --build build --target insitu_example
+build/bin/insitu_example
+```
+
+The example writes `multifab-render.ppm` into the working directory.
+
 ## Testing
 
 Keep tests enabled during configuration (`-DAMRVOLUMERENDERER_ENABLE_TESTING=ON`)

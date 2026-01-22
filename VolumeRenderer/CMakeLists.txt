@@ -45,7 +45,28 @@ amrVolumeRenderer_executable(volume_renderer
     ../DirectSend/Base/DirectSendBase.cpp
   HEADERS
     VolumeRenderer.hpp
+    VolumeRendererApi.hpp
     ../DirectSend/Base/DirectSendBase.hpp
 )
 
 target_link_libraries(volume_renderer PRIVATE amrex)
+
+add_library(amrVolumeRendererApi STATIC
+  VolumeRenderer.cpp
+  VolumeRendererApi.cpp
+  ../Common/VolumePainter.cpp
+  ../Common/VisibilityOrdering.cpp
+  ../DirectSend/Base/DirectSendBase.cpp
+  VolumeRenderer.hpp
+  VolumeRendererApi.hpp
+  ../DirectSend/Base/DirectSendBase.hpp
+)
+set_target_properties(amrVolumeRendererApi PROPERTIES POSITION_INDEPENDENT_CODE ON)
+amrVolumeRenderer_target_features(amrVolumeRendererApi)
+target_link_libraries(amrVolumeRendererApi PRIVATE amrVolumeRendererCommon amrex)
+
+add_executable(insitu_example
+  Examples/RenderFromMultiFab.cpp
+)
+amrVolumeRenderer_target_features(insitu_example)
+target_link_libraries(insitu_example PRIVATE amrVolumeRendererApi amrex)
