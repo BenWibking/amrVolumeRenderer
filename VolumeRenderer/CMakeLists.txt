@@ -8,23 +8,27 @@ cmake_minimum_required(VERSION 3.14)
 include(../CMake/amrVolumeRendererMacros.cmake)
 include(FetchContent)
 
-set(AMRVOLUMERENDERER_AMREX_RELEASE_TAG "26.01" CACHE STRING
-    "AMReX release tag to fetch from GitHub releases.")
-set(AMRVOLUMERENDERER_AMREX_RELEASE_URL
-    "https://github.com/AMReX-Codes/amrex/releases/download/${AMRVOLUMERENDERER_AMREX_RELEASE_TAG}/amrex-${AMRVOLUMERENDERER_AMREX_RELEASE_TAG}.tar.gz"
-    CACHE STRING "AMReX release tarball URL.")
-FetchContent_Declare(amrex
-  URL ${AMRVOLUMERENDERER_AMREX_RELEASE_URL}
-)
+if(NOT TARGET amrex AND NOT TARGET AMReX::amrex)
+  set(AMRVOLUMERENDERER_AMREX_RELEASE_TAG "26.01" CACHE STRING
+      "AMReX release tag to fetch from GitHub releases.")
+  set(AMRVOLUMERENDERER_AMREX_RELEASE_URL
+      "https://github.com/AMReX-Codes/amrex/releases/download/${AMRVOLUMERENDERER_AMREX_RELEASE_TAG}/amrex-${AMRVOLUMERENDERER_AMREX_RELEASE_TAG}.tar.gz"
+      CACHE STRING "AMReX release tarball URL.")
+  FetchContent_Declare(amrex
+    URL ${AMRVOLUMERENDERER_AMREX_RELEASE_URL}
+  )
 
-set(AMReX_SPACEDIM 3 CACHE STRING "AMReX dimension" FORCE)
-set(AMReX_MPI ON CACHE BOOL "Enable MPI in AMReX" FORCE)
-set(AMReX_FORTRAN OFF CACHE BOOL "Disable AMReX Fortran interfaces" FORCE)
-set(AMReX_OMP OFF CACHE BOOL "Disable AMReX OpenMP" FORCE)
-set(AMReX_ENABLE_PIC ON CACHE BOOL "Build AMReX with position independent code" FORCE)
+  set(AMReX_SPACEDIM 3 CACHE STRING "AMReX dimension" FORCE)
+  set(AMReX_MPI ON CACHE BOOL "Enable MPI in AMReX" FORCE)
+  set(AMReX_FORTRAN OFF CACHE BOOL "Disable AMReX Fortran interfaces" FORCE)
+  set(AMReX_OMP OFF CACHE BOOL "Disable AMReX OpenMP" FORCE)
+  set(AMReX_ENABLE_PIC ON CACHE BOOL "Build AMReX with position independent code" FORCE)
 
-if(NOT TARGET amrex)
   FetchContent_MakeAvailable(amrex)
+endif()
+
+if(TARGET AMReX::amrex AND NOT TARGET amrex)
+  add_library(amrex ALIAS AMReX::amrex)
 endif()
 
 if(TARGET amrex)
@@ -63,7 +67,7 @@ add_library(amrVolumeRendererApi STATIC
 )
 set_target_properties(amrVolumeRendererApi PROPERTIES POSITION_INDEPENDENT_CODE ON)
 amrVolumeRenderer_target_features(amrVolumeRendererApi)
-target_link_libraries(amrVolumeRendererApi PRIVATE amrVolumeRendererCommon amrex)
+target_link_libraries(amrVolumeRendererApi PUBLIC amrVolumeRendererCommon amrex)
 
 add_executable(insitu_example
   Examples/RenderFromMultiFab.cpp

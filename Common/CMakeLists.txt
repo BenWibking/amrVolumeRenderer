@@ -63,7 +63,7 @@ set_target_properties(amrVolumeRendererCommon PROPERTIES POSITION_INDEPENDENT_CO
 set_source_files_properties(${headers} HEADER_ONLY TRUE)
 
 amrVolumeRenderer_target_features(amrVolumeRendererCommon)
-target_link_libraries(amrVolumeRendererCommon PRIVATE PNG::PNG)
+target_link_libraries(amrVolumeRendererCommon PUBLIC PNG::PNG)
 
 install(TARGETS amrVolumeRendererCommon
   LIBRARY DESTINATION lib
