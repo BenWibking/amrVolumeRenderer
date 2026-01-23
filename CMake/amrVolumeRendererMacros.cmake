@@ -64,6 +64,11 @@ function(amrVolumeRenderer_target_features target_name)
 
   target_compile_options(${target_name} PRIVATE ${cxx_flags})
 
+  target_compile_definitions(${target_name} PRIVATE
+    OMPI_SKIP_MPICXX=1
+    OMPI_SKIP_CXX=1
+    )
+
   target_compile_features(${target_name} PRIVATE
     cxx_std_11
     cxx_raw_string_literals
