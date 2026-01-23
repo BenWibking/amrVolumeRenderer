@@ -15,13 +15,13 @@ include(CMakeParseArguments)
 set(amrVolumeRenderer_CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR})
 set(CMAKE_MODULE_PATH ${CMAK$E_MODULE_PATH} ${amrVolumeRenderer_CMAKE_MODULE_PATH})
 
-# Set up the binary output paths
-set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR}/lib CACHE PATH
-  "Output directory for building all libraries."
-  )
-set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/bin CACHE PATH
-  "Output directory for building all executables."
-  )
+function(amrVolumeRenderer_set_output_dirs target_name)
+  set_target_properties(${target_name} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
+    )
+endfunction(amrVolumeRenderer_set_output_dirs)
 
 # Get the base amrVolumeRenderer source dir
 get_filename_component(amrVolumeRenderer_SOURCE_DIR
@@ -108,6 +108,7 @@ function(amrVolumeRenderer_executable miniapp_name)
   amrVolumeRenderer_create_config_header(${miniapp_name})
 
   add_executable(${miniapp_name} ${srcs} ${headers})
+  amrVolumeRenderer_set_output_dirs(${miniapp_name})
 
   amrVolumeRenderer_target_features(${miniapp_name})
 

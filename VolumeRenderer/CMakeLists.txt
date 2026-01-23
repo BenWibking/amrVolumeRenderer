@@ -66,11 +66,13 @@ add_library(amrVolumeRendererApi STATIC
   ../DirectSend/Base/DirectSendBase.hpp
 )
 set_target_properties(amrVolumeRendererApi PROPERTIES POSITION_INDEPENDENT_CODE ON)
+amrVolumeRenderer_set_output_dirs(amrVolumeRendererApi)
 amrVolumeRenderer_target_features(amrVolumeRendererApi)
 target_link_libraries(amrVolumeRendererApi PUBLIC amrVolumeRendererCommon amrex)
 
 add_executable(insitu_example
   Examples/RenderFromMultiFab.cpp
 )
+amrVolumeRenderer_set_output_dirs(insitu_example)
 amrVolumeRenderer_target_features(insitu_example)
 target_link_libraries(insitu_example PRIVATE amrVolumeRendererApi amrex)

@@ -19,6 +19,7 @@ create_test_sourcelist(test_srcs ${test_target}.cpp ${srcs})
 amrVolumeRenderer_create_config_header("common library tests")
 
 add_executable(${test_target} ${test_srcs})
+amrVolumeRenderer_set_output_dirs(${test_target})
 
 target_link_libraries(${test_target} PRIVATE amrVolumeRendererCommon)
 amrVolumeRenderer_target_features(${test_target})

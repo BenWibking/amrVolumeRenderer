@@ -59,6 +59,7 @@ amrVolumeRenderer_create_config_header("common library")
 
 add_library(amrVolumeRendererCommon ${srcs} ${headers})
 set_target_properties(amrVolumeRendererCommon PROPERTIES POSITION_INDEPENDENT_CODE ON)
+amrVolumeRenderer_set_output_dirs(amrVolumeRendererCommon)
 
 set_source_files_properties(${headers} HEADER_ONLY TRUE)
 
