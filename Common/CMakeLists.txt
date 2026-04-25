@@ -64,7 +64,10 @@ amrVolumeRenderer_set_output_dirs(amrVolumeRendererCommon)
 set_source_files_properties(${headers} HEADER_ONLY TRUE)
 
 amrVolumeRenderer_target_features(amrVolumeRendererCommon)
-target_link_libraries(amrVolumeRendererCommon PUBLIC PNG::PNG)
+amrVolumeRenderer_cuda_target_sources(amrVolumeRendererCommon
+  VisibilityOrdering.cpp
+  VolumePainter.cpp)
+target_link_libraries(amrVolumeRendererCommon PUBLIC PNG::PNG amrex)
 
 install(TARGETS amrVolumeRendererCommon
   LIBRARY DESTINATION lib

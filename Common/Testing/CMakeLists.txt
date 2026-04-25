@@ -23,6 +23,7 @@ amrVolumeRenderer_set_output_dirs(${test_target})
 
 target_link_libraries(${test_target} PRIVATE amrVolumeRendererCommon)
 amrVolumeRenderer_target_features(${test_target})
+amrVolumeRenderer_cuda_target_sources(${test_target})
 
 foreach(test ${srcs})
   get_filename_component(test_name ${test} NAME_WE)

@@ -13,7 +13,7 @@ include(CMakeParseArguments)
 
 # Set up this directory in the CMAKE MODULE PATH
 set(amrVolumeRenderer_CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR})
-set(CMAKE_MODULE_PATH ${CMAK$E_MODULE_PATH} ${amrVolumeRenderer_CMAKE_MODULE_PATH})
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${amrVolumeRenderer_CMAKE_MODULE_PATH})
 
 function(amrVolumeRenderer_set_output_dirs target_name)
   set_target_properties(${target_name} PROPERTIES
@@ -69,11 +69,43 @@ function(amrVolumeRenderer_target_features target_name)
     OMPI_SKIP_CXX=1
     )
 
-  target_compile_features(${target_name} PRIVATE
-    cxx_std_11
-    cxx_raw_string_literals
+  # AMReX 26.04 and this codebase build as C++20, and setting explicit target
+  # standards avoids CMake's CUDA compile-feature resolution path for targets
+  # that link against CUDA-enabled AMReX.
+  set_target_properties(${target_name} PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
     )
+
+  if(CMAKE_CUDA_COMPILER_LOADED)
+    set_target_properties(${target_name} PROPERTIES
+      CUDA_STANDARD 20
+      CUDA_STANDARD_REQUIRED ON
+      CUDA_EXTENSIONS OFF
+      )
+  endif()
 endfunction(amrVolumeRenderer_target_features)
+
+function(amrVolumeRenderer_cuda_target_sources target_name)
+  if(NOT AMReX_GPU_BACKEND STREQUAL "CUDA")
+    return()
+  endif()
+
+  if(ARGN)
+    set_source_files_properties(${ARGN} PROPERTIES LANGUAGE CUDA)
+  endif()
+
+  set_target_properties(${target_name} PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ${AMReX_GPU_RDC}
+    )
+
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.18)
+    set_target_properties(${target_name} PROPERTIES
+      CUDA_ARCHITECTURES "${AMREX_CUDA_ARCHS}"
+      )
+  endif()
+endfunction(amrVolumeRenderer_cuda_target_sources)
 
 # Find the largest power of two less than or equal to the given value.
 function(amrVolumeRenderer_find_power_of_two var value)

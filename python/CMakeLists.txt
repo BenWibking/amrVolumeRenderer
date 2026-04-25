@@ -14,6 +14,11 @@ nanobind_add_module(amrVolumeRenderer_ext MODULE
 )
 
 amrVolumeRenderer_target_features(amrVolumeRenderer_ext)
+amrVolumeRenderer_cuda_target_sources(amrVolumeRenderer_ext
+  amrVolumeRenderer/module.cpp
+  ../VolumeRenderer/VolumeRenderer.cpp
+  ../Common/VisibilityOrdering.cpp
+  ../Common/VolumePainter.cpp)
 
 set(_amrvr_nanobind_system_includes "")
 if(DEFINED nanobind_SOURCE_DIR)
