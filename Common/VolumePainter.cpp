@@ -72,12 +72,25 @@ struct ColorTableSpec {
   bool useClamping = true;
 };
 
-float saturateSoftTail(float value, float clipStart, float rolloffEnd) {
+AMREX_GPU_HOST_DEVICE inline float saturateSoftTail(float value,
+                                                    float clipStart,
+                                                    float rolloffEnd) {
   const float clampedEnd = std::max(clipStart, rolloffEnd);
   if (!(clampedEnd > clipStart + kSoftClipTolerance)) {
-    return std::clamp(value, 0.0f, clampedEnd);
+    float clampedValue = value;
+    if (clampedValue < 0.0f) {
+      clampedValue = 0.0f;
+    } else if (clampedValue > clampedEnd) {
+      clampedValue = clampedEnd;
+    }
+    return clampedValue;
   }
-  float clampedValue = std::clamp(value, 0.0f, clampedEnd);
+  float clampedValue = value;
+  if (clampedValue < 0.0f) {
+    clampedValue = 0.0f;
+  } else if (clampedValue > clampedEnd) {
+    clampedValue = clampedEnd;
+  }
   if (!(clampedValue > clipStart)) {
     return clampedValue;
   }
@@ -89,42 +102,6 @@ float saturateSoftTail(float value, float clipStart, float rolloffEnd) {
   const float smooth =
       normalized + normalized * normalized - normalized * normalized * normalized;
   return clipStart + (clampedEnd - clipStart) * smooth;
-}
-
-bool shouldApplySoftClip(const std::vector<float>& values,
-                         float clipStart,
-                         float rolloffEnd) {
-  if (!(rolloffEnd > clipStart + kSoftClipTolerance)) {
-    return false;
-  }
-  for (float value : values) {
-    if (!std::isfinite(value)) {
-      continue;
-    }
-    if (value > clipStart) {
-      return true;
-    }
-  }
-  return false;
-}
-
-void applySoftClip(std::vector<float>& values,
-                   float clipStart,
-                   float rolloffEnd) {
-  if (!(rolloffEnd > clipStart + kSoftClipTolerance)) {
-    for (float& value : values) {
-      if (std::isfinite(value)) {
-        value = std::clamp(value, 0.0f, rolloffEnd);
-      }
-    }
-    return;
-  }
-  for (float& value : values) {
-    if (!std::isfinite(value)) {
-      continue;
-    }
-    value = saturateSoftTail(value, clipStart, rolloffEnd);
-  }
 }
 
 float computeScaledAlpha(float baseAlpha,
@@ -571,6 +548,7 @@ VolumePainter::~VolumePainter() = default;
 void VolumePainter::paint(
     const amrVolumeRenderer::volume::AmrBox& box,
     const amrVolumeRenderer::volume::VolumeBounds& bounds,
+    const amrVolumeRenderer::volume::ScalarTransform& scalarTransform,
     const std::pair<float, float>& scalarRange,
     int rank,
     int numProcs,
@@ -637,23 +615,6 @@ void VolumePainter::paint(
     std::vector<ColorTableEntry> colorTable =
         buildColorTable(alphaScale, normalizationFactor, scalarRange, colorMap);
 
-    const float clipStart = std::clamp(scalarRange.second, 0.0f, 1.0f);
-    std::vector<float> adjustedValues;
-    const bool applyClip =
-        shouldApplySoftClip(box.cellValues, clipStart, 1.0f);
-    if (applyClip) {
-      adjustedValues = box.cellValues;
-      applySoftClip(adjustedValues, clipStart, 1.0f);
-    }
-
-    const std::vector<float>& sourceValues =
-        applyClip ? adjustedValues : box.cellValues;
-
-    if (sourceValues.empty()) {
-      depthSortedImage->clear();
-      return;
-    }
-
     const int width = image.getWidth();
     const int height = image.getHeight();
     if (width <= 0 || height <= 0) {
@@ -710,6 +671,9 @@ void VolumePainter::paint(
       depthSortedImage->clear();
       return;
     }
+    const amrex::IntVect boxLo = box.validBox.smallEnd();
+    const auto values = box.values;
+    const int valueComponent = box.component;
 
     const float dx =
         (nx > 0) ? (maxCorner[0] - minCorner[0]) / static_cast<float>(nx)
@@ -726,12 +690,6 @@ void VolumePainter::paint(
         (maxCorner[1] - minCorner[1]) * (maxCorner[1] - minCorner[1]) +
         (maxCorner[2] - minCorner[2]) * (maxCorner[2] - minCorner[2]));
     const float meshEpsilon = extentMag * 0.0001f;
-
-    amrex::Gpu::DeviceVector<float> deviceValues(sourceValues.size());
-    amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
-                          sourceValues.begin(),
-                          sourceValues.end(),
-                          deviceValues.begin());
 
     std::vector<float> hostColorTable(
         static_cast<std::size_t>(kColorTableSize) * 4);
@@ -762,13 +720,14 @@ void VolumePainter::paint(
     if (rangeMax != rangeMin) {
       inverseRange = 1.0f / (rangeMax - rangeMin);
     }
+    const float clipStart = std::clamp(scalarRange.second, 0.0f, 1.0f);
+    const bool applyClip = 1.0f > clipStart + kSoftClipTolerance;
 
     const float tanHalfFov =
         std::tan(camera.fovYDegrees * 0.5f * kPi / 180.0f);
     const float invWidth = 1.0f / static_cast<float>(width);
     const float invHeight = 1.0f / static_cast<float>(height);
 
-    const float* valuesPtr = deviceValues.data();
     const float* tablePtr = deviceColorTable.data();
     float* outColor = deviceColor.data();
     float* outDepth = deviceDepth.data();
@@ -908,9 +867,12 @@ void VolumePainter::paint(
             }
 
             if (i >= 0 && i < nx && j >= 0 && j < ny && k >= 0 && k < nz) {
-              const int flat =
-                  (k * ny + j) * nx + i;
-              const float scalar = valuesPtr[flat];
+              float scalar = applyScalarTransform(
+                  values(boxLo[0] + i, boxLo[1] + j, boxLo[2] + k, valueComponent),
+                  scalarTransform);
+              if (applyClip) {
+                scalar = saturateSoftTail(scalar, clipStart, 1.0f);
+              }
               float normalized = (scalar - rangeMin) * inverseRange;
               normalized = (normalized < 0.0f) ? 0.0f : normalized;
               normalized = (normalized > 1.0f) ? 1.0f : normalized;

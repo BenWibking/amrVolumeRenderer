@@ -35,44 +35,67 @@ PNG outputs are saved as 8-bit RGB with the alpha channel discarded.
 
 ## Library Usage
 
-The rendering pipeline can be invoked programmatically. Provide a scene description (per-rank boxes plus optional explicit bounds), configure rendering parameters, and call `renderScene`:
+The rendering pipeline can be invoked programmatically. Provide a scene description (per-rank boxes plus optional explicit bounds), keep the source `MultiFab` storage alive through `SceneGeometry::ownedLevels`, and call `renderScene`:
 
 ```cpp
+#include <AMReX.H>
+#include <AMReX_Box.H>
+#include <AMReX_BoxArray.H>
+#include <AMReX_DistributionMapping.H>
 #include <AMReX_IntVect.H>
+#include <AMReX_MultiFab.H>
 #include <AMReX_RealVect.H>
+#include <memory>
 #include "VolumeRenderer.hpp"
 
 int main(int argc, char** argv) {
-  MPI_Init(&argc, &argv);
+  amrex::Initialize(argc, argv);
+  {
+    VolumeRenderer example;
 
-  VolumeRenderer example;
+    VolumeRenderer::SceneGeometry geometry;
+    geometry.ownedLevels =
+        std::make_shared<amrex::Vector<amrex::MultiFab>>();
 
-  VolumeRenderer::SceneGeometry geometry;
-  VolumeRenderer::AmrBox box;
-  box.minCorner = amrex::RealVect(-0.5, -0.5, -0.5);
-  box.maxCorner = amrex::RealVect(0.5, 0.5, 0.5);
-  box.cellDimensions = amrex::IntVect(32, 32, 32);
-  const float cellValue = 1.0f;  // pick a distinct scalar per AMR box
-  box.cellValues.assign(32 * 32 * 32, cellValue);
-  geometry.localBoxes.push_back(box);
-  // Optionally set geometry.explicitBounds and geometry.hasExplicitBounds.
+    const int nCells = 32;
+    amrex::Box domain(amrex::IntVect(0), amrex::IntVect(nCells - 1));
+    amrex::BoxArray boxArray(domain);
+    amrex::DistributionMapping distMap(boxArray);
+    geometry.ownedLevels->emplace_back(boxArray, distMap, 1, 0);
 
-  VolumeRenderer::RenderParameters params;
-  params.width = 800;
-  params.height = 600;
-  params.antialiasing = 4;  // 2x2 supersampling
+    amrex::MultiFab& level0 = geometry.ownedLevels->back();
+    level0.setVal(1.0);
 
-  VolumeRenderer::CameraParameters camera;
-  camera.eye = amrex::RealVect(0.0, 0.5, 3.0);
-  camera.lookAt = amrex::RealVect(0.0, 0.0, 0.0);
-  camera.up = amrex::RealVect(0.0, 1.0, 0.0);
-  camera.fovYDegrees = 45.0f;
-  camera.nearPlane = 0.1f;
-  camera.farPlane = 20.0f;
+    for (amrex::MFIter mfi(level0); mfi.isValid(); ++mfi) {
+      VolumeRenderer::AmrBox box;
+      box.minCorner = amrex::RealVect(0.0, 0.0, 0.0);
+      box.maxCorner = amrex::RealVect(1.0, 1.0, 1.0);
+      box.validBox = mfi.validbox();
+      box.cellDimensions = box.validBox.length();
+      box.values = level0.const_array(mfi);
+      box.component = 0;
+      geometry.localBoxes.push_back(box);
+    }
+    geometry.scalarRange = {0.0f, 1.0f};
+    geometry.hasScalarRange = true;
+    // Optionally set geometry.explicitBounds and geometry.hasExplicitBounds.
 
-  example.renderScene("custom-output.png", params, geometry, camera);
+    VolumeRenderer::RenderParameters params;
+    params.width = 800;
+    params.height = 600;
+    params.antialiasing = 4;  // 2x2 supersampling
 
-  MPI_Finalize();
+    VolumeRenderer::CameraParameters camera;
+    camera.eye = amrex::RealVect(0.0, 0.5, 3.0);
+    camera.lookAt = amrex::RealVect(0.0, 0.0, 0.0);
+    camera.up = amrex::RealVect(0.0, 1.0, 0.0);
+    camera.fovYDegrees = 45.0f;
+    camera.nearPlane = 0.1f;
+    camera.farPlane = 20.0f;
+
+    example.renderScene("custom-output.png", params, geometry, camera);
+  }
+  amrex::Finalize();
 }
 ```
 
@@ -82,7 +105,7 @@ to generate an orbiting view automatically using the configured camera seed.
 ## Implementation Notes
 
 - Global bounds are computed with MPI reductions to keep camera framing consistent across ranks.
-- Every AMR brick is converted to a dedicated uniform dataset so its native cell spacing drives the ray-marching step size, even when boxes differ in resolution.
+- Every AMR brick is sampled directly from convexified AMReX storage, so its native cell spacing drives the ray-marching step size without a post-convexify scalar repack.
 - Brick constant values flow through a jet color map with a shared scalar range, so assigning a distinct scalar per box yields distinct colors automatically.
 - An `antialiasing` supersampling factor (1, 4, 9, …) controls screen-space supersampling; the ray-march step size now follows the native AMR spacing and brightness stays consistent across levels.
 - Opacity samples are normalized by the ray step so AMR refinement does not change the apparent density of a feature.

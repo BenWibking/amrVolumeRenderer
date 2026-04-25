@@ -19,6 +19,7 @@ class VolumePainter {
 
   void paint(const amrVolumeRenderer::volume::AmrBox& box,
              const amrVolumeRenderer::volume::VolumeBounds& bounds,
+             const amrVolumeRenderer::volume::ScalarTransform& scalarTransform,
              const std::pair<float, float>& scalarRange,
              int rank,
              int numProcs,

@@ -1,6 +1,7 @@
 #ifndef AMRVOLUMERENDERER_VOLUME_RENDERER_HPP
 #define AMRVOLUMERENDERER_VOLUME_RENDERER_HPP
 
+#include <AMReX_MultiFab.H>
 #include <AMReX_RealVect.H>
 #include <mpi.h>
 
@@ -8,6 +9,7 @@
 #include <Common/ImageFull.hpp>
 #include <Common/VolumeTypes.hpp>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -26,6 +28,7 @@ class VolumeRenderer {
   using CameraParameters = amrVolumeRenderer::volume::CameraParameters;
   using ColorMap = amrVolumeRenderer::volume::ColorMap;
   using ColorMapControlPoint = amrVolumeRenderer::volume::ColorMapControlPoint;
+  using ScalarTransform = amrVolumeRenderer::volume::ScalarTransform;
 
   struct RenderParameters {
     int width = 512;
@@ -41,6 +44,7 @@ class VolumeRenderer {
   };
 
   struct SceneGeometry {
+    std::shared_ptr<amrex::Vector<amrex::MultiFab>> ownedLevels;
     std::vector<AmrBox> localBoxes;
     VolumeBounds explicitBounds;
     bool hasExplicitBounds = false;
@@ -50,6 +54,7 @@ class VolumeRenderer {
     bool hasProcessedScalarRange = false;
     std::pair<float, float> originalScalarRange = {0.0f, 1.0f};
     bool hasOriginalScalarRange = false;
+    ScalarTransform scalarTransform;
   };
 
   struct RunOptions {
@@ -127,9 +132,10 @@ class VolumeRenderer {
   VolumeBounds computeTightBounds(const std::vector<AmrBox>& boxes,
                                   const VolumeBounds& fallback) const;
   std::pair<float, float> computeGlobalScalarRange(
-      const std::vector<AmrBox>& boxes) const;
+      const SceneGeometry& geometry) const;
   void paint(const AmrBox& box,
              const VolumeBounds& bounds,
+             const ScalarTransform& scalarTransform,
              const std::pair<float, float>& scalarRange,
              float boxTransparency,
              int antialiasing,
@@ -149,6 +155,7 @@ class VolumeRenderer {
                         const RenderParameters& parameters,
                         const SceneGeometry& geometry,
                         const VolumeBounds& bounds,
+                        const ScalarTransform& scalarTransform,
                         const std::pair<float, float>& scalarRange,
                         Compositor* compositor,
                         MPI_Group baseGroup,

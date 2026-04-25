@@ -9,6 +9,7 @@ include(../CMake/amrVolumeRendererMacros.cmake)
 
 amrVolumeRenderer_executable(volume_renderer
   SOURCES
+    SceneBuilder.cpp
     VolumeRenderer.cpp
     main.cpp
     ../Common/VolumePainter.cpp
@@ -21,6 +22,7 @@ amrVolumeRenderer_executable(volume_renderer
 )
 
 amrVolumeRenderer_cuda_target_sources(volume_renderer
+  SceneBuilder.cpp
   VolumeRenderer.cpp
   main.cpp
   ../Common/VisibilityOrdering.cpp
@@ -28,6 +30,7 @@ amrVolumeRenderer_cuda_target_sources(volume_renderer
 target_link_libraries(volume_renderer PRIVATE amrex)
 
 add_library(amrVolumeRendererApi STATIC
+  SceneBuilder.cpp
   VolumeRenderer.cpp
   VolumeRendererApi.cpp
   ../Common/VolumePainter.cpp
@@ -41,6 +44,7 @@ set_target_properties(amrVolumeRendererApi PROPERTIES POSITION_INDEPENDENT_CODE 
 amrVolumeRenderer_set_output_dirs(amrVolumeRendererApi)
 amrVolumeRenderer_target_features(amrVolumeRendererApi)
 amrVolumeRenderer_cuda_target_sources(amrVolumeRendererApi
+  SceneBuilder.cpp
   VolumeRenderer.cpp
   VolumeRendererApi.cpp
   ../Common/VisibilityOrdering.cpp
