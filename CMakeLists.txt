@@ -106,6 +106,10 @@ endif()
 include(CMake/amrVolumeRendererMacros.cmake)
 
 add_subdirectory(VolumeRenderer)
+add_subdirectory(GaussianExport)
+set(SPLAT_RENDERER_ENABLE_TESTING ${AMRVOLUMERENDERER_ENABLE_TESTING} CACHE BOOL
+    "Build splat renderer tests")
+add_subdirectory(SplatRenderer)
 
 if (TARGET volume_renderer AND AMRVOLUMERENDERER_ENABLE_PYTHON)
   add_subdirectory(python)
